@@ -1,0 +1,18 @@
+{
+  "name": "webmcp_web_recovery_short",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/.hermes/cache/scratch/fp-webmcp/cache/web/example.com-065f30cd51.md",
+    "offset": 1,
+    "limit": 200
+  },
+  "result": "{\"content\": \"1|Short complete cached text.\", \"total_lines\": 1, \"file_size\": 27, \"truncated\": false, \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "facts": {
+    "source_lines": 1,
+    "clamped": false
+  },
+  "expect": "miss",
+  "limit_id": "web_extract.pdf_from_url",
+  "source": "tools/file_operations.py:488-502",
+  "synthetic_by_hand": false
+}

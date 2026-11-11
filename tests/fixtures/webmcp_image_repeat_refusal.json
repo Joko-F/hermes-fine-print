@@ -1,0 +1,22 @@
+{
+  "name": "webmcp_image_repeat_refusal",
+  "tool": "vision_analyze",
+  "args": {
+    "image_url": "/home/dev/synthetic-image.png",
+    "region": [
+      0,
+      0,
+      20,
+      20
+    ]
+  },
+  "result": "{\"error\": \"vision_analyze refused: this image has already been loaded into context 3 time(s) in this session (region crops of the same file count too), and every native load re-sends the full image on each later API call. Answer from what you can already see, or ask the user. (vision.max_calls_per_image = 3; 0 = unlimited)\", \"success\": false}",
+  "facts": {
+    "previous_loads": 3,
+    "cap": 3
+  },
+  "expect": "hit",
+  "limit_id": "subagent-image-repeat-cap",
+  "source": "tools/vision_tools_history_budget.py:92-112; tools/vision_tools.py:700-708",
+  "synthetic_by_hand": false
+}

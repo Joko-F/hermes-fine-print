@@ -1,0 +1,21 @@
+{
+  "name": "webmcp_summary_cut",
+  "tool": "delegate_task",
+  "args": {
+    "tasks": [
+      {
+        "goal": "Synthetic task"
+      }
+    ]
+  },
+  "result": "{\"results\": [{\"task_index\": 0, \"status\": \"completed\", \"summary\": \"Synthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\n\\n[... middle omitted \\u2014 see footer ...]\\n\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\n\\n\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500 [SUMMARY TRUNCATED] \\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\nShowing 1,487 chars (head) + 480 chars (tail) of 9,000 total \\u2014 trimmed to protect the parent's context window.\\nFull subagent output saved to: /home/dev/.hermes/cache/scratch/fp-webmcp/delegation/subagent-summary-0-20261111_165232_313457.txt\\nTo read the omitted middle: read_file path=\\\"/home/dev/.hermes/cache/scratch/fp-webmcp/delegation/subagent-summary-0-20261111_165232_313457.txt\\\" offset=63 limit=200  (the file is the complete summary; raise/lower offset to page through it).\\n\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\\u2500\", \"summary_truncated\": true, \"summary_full_path\": \"/home/dev/.hermes/cache/scratch/fp-webmcp/delegation/subagent-summary-0-20261111_165232_313457.txt\"}]}",
+  "facts": {
+    "input_chars": 9000,
+    "dynamic_cap": 2000,
+    "stored": true
+  },
+  "expect": "hit",
+  "limit_id": "subagent-summary-budget",
+  "source": "tools/delegate_tool_results.py:194-238,254-308",
+  "synthetic_by_hand": false
+}
