@@ -10,7 +10,7 @@ from . import constants as C
 from .cards import describe
 from .sheet import build_sheet
 
-USAGE = ("Usage: /limits [last | topics | <topic> | explain <id> | report [days] | self-test | "
+USAGE = ("Usage: /limits [last | topics | <topic> | explain <id> | report [html] [days] | self-test | "
          "mute <id> | unmute <id> | notes on|off | sheet on|off | cards auto|on|off]")
 
 
@@ -22,7 +22,7 @@ def _state(event: dict) -> str:
 
 class Commands:
     def __init__(self, fp: Any, set_setting: Callable[[str, Any], None],
-                 report: Optional[Callable[[int], str]] = None, hermes_version: Callable[[], str] = lambda: "") -> None:
+                 report: Optional[Callable[..., str]] = None, hermes_version: Callable[[], str] = lambda: "") -> None:
         self.fp, self.set_setting, self.report, self.hermes_version = fp, set_setting, report, hermes_version
 
     def handle(self, raw_args: str = "", session_id: str = "", **_: Any) -> str:
@@ -151,11 +151,14 @@ class Commands:
     def _report(self, rest: list[str]) -> str:
         if self.report is None:
             return "The history report is not available in this build."
+        html = bool(rest) and rest[0].lower() == "html"
+        if html:
+            rest = rest[1:]
         try:
             days = max(1, min(3650, int(rest[0]))) if rest else 30
         except ValueError:
-            return "Usage: /limits report [days]"
-        return self.report(days)
+            return "Usage: /limits report [html] [days]"
+        return self.report(days, True) if html else self.report(days)
 
     def self_test(self) -> str:
         rules = self.fp.registry.all()

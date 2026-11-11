@@ -106,7 +106,7 @@ def register(ctx: Any) -> None:
     report = None
     try:
         from .report import history_report
-        report = lambda days: history_report(fp.registry, days, host.config)  # noqa: E731
+        report = lambda days, html=False: history_report(fp.registry, days, host.config, html)  # noqa: E731
     except Exception:  # noqa: BLE001
         logger.debug("fine-print: history report unavailable", exc_info=True)
     commands = Commands(fp, host.set_setting, report, _hermes_version)

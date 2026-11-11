@@ -387,12 +387,43 @@ def render_report(result: dict, days: int) -> str:
     return "\n".join(lines)
 
 
-def history_report(registry: Registry, days: int, cfg: Any = None) -> str:
+def _scan_history(registry: Registry, days: int) -> Any:
+    """The scan result for the last ``days`` days, or the sentence that says why there is none."""
     try:
         db = _state_db()
         if not db.exists():
             return "Fine Print: no session database found for this profile yet."
-        result = scan(registry, db, time.time() - days * 86400, deadline=time.time() + MAX_SECONDS)
+        return scan(registry, db, time.time() - days * 86400, deadline=time.time() + MAX_SECONDS)
     except Exception as exc:  # noqa: BLE001
         return f"Fine Print: the history report could not read the session database ({type(exc).__name__})."
-    return render_report(result, days)
+
+
+def _report_dir() -> Path:
+    """Where ``/limits report html`` writes its page: the profile's own cache folder, or
+    ``FINE_PRINT_REPORT_DIR`` when set (tests)."""
+    override = os.environ.get("FINE_PRINT_REPORT_DIR")
+    if override:
+        return Path(override).expanduser()
+    from hermes_constants import get_hermes_home
+    return Path(get_hermes_home()) / "cache" / "fine-print"
+
+
+def history_report(registry: Registry, days: int, cfg: Any = None, html: bool = False) -> str:
+    """The text report, or with ``html`` one self-contained page on disk and the sentence that names it."""
+    result = _scan_history(registry, days)
+    if isinstance(result, str):
+        return result
+    if not html:
+        return render_report(result, days)
+    try:
+        from .export import report_html
+        page = report_html(result, days, registry=registry,
+                           generated_at=time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()))
+        folder = _report_dir()
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "limits-report.html"
+        path.write_text(page, encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        return f"Fine Print: the report page could not be written ({type(exc).__name__})."
+    return (f"Fine Print · report page written: {path} ({max(1, len(page.encode('utf-8')) // 1024)} KB)\n"
+            "Open it in a browser. One file, no scripts, no network; aggregates only: no paths, hosts or message text.")
