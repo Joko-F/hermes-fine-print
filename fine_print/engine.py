@@ -31,6 +31,7 @@ class Call:
     tool: str
     args: dict
     tool_call_id: str = ""
+    ok: bool = True                  # False when the call returned an error: it recovers nothing
 
     def flat_args(self) -> str:
         try:
@@ -80,6 +81,39 @@ class CommitRow:
     tool_call_id: str = ""
 
 
+@dataclass
+class ApiEvent:
+    """What a response-driver rule sees: one provider response of the main loop (post_api_request)."""
+    model: str = ""
+    provider: str = ""
+    response_model: str = ""
+    finish_reason: str = ""
+    api_mode: str = ""
+    usage: dict = field(default_factory=dict)
+    context_length: int = 0
+    api_call_count: int = 0
+
+
+@dataclass
+class TurnEvent:
+    """What a turn-driver rule sees: how the turn ended (on_session_end fires for every turn)."""
+    exit_reason: str = ""
+    completed: bool = True
+    failed: bool = False
+    interrupted: bool = False
+
+
+@dataclass
+class CompactionEvent:
+    """What a compaction-driver rule sees: one committed compaction (post_compaction)."""
+    kind: str = ""                   # summarize | micro_summarize | prune_tool_results | provider_native
+    reason: str = ""
+    before_tokens: Optional[int] = None
+    after_tokens: Optional[int] = None
+    messages_removed: Optional[int] = None
+    summarizer_failed: bool = False  # a compression aux call failed just before this compaction
+
+
 # ── recovery predicates ────────────────────────────────────────────────────────────────────────────
 def _num(value: Any, default: int) -> int:
     try:
@@ -88,52 +122,63 @@ def _num(value: Any, default: int) -> int:
         return default
 
 
+# Tools that can actually read a saved file back.
+READERS = ("read_file", "search_files", "terminal", "execute_code")
+
+
 @dataclass(frozen=True)
 class Recover:
-    """A declarative answer to "did the model get the missing part later in the turn?"."""
+    """A declarative answer to "did the model follow up on the missing part later in the turn?".
+
+    It is evidence of a follow-up, not proof of a complete recovery: only successful calls count, the
+    tool must be one that can fetch the missing part, and the target must match. The user-facing
+    text therefore says "followed up", never "read everything"."""
     kind: str
     key: str = ""
     extra: tuple = ()
 
     @staticmethod
     def names(fragment: str, tools: Iterable[str] = ()) -> "Recover":
-        """A later call whose arguments name ``fragment`` (a saved file's basename): read_file,
-        search_files, terminal or execute_code on that file all count. ``tools`` narrows which
-        tools count (e.g. only code execution can recover a clipped spreadsheet)."""
-        return Recover("names", fragment, tuple(tools))
+        """A later successful call of a reading tool whose arguments name ``fragment`` (the saved
+        file's basename). ``tools`` narrows which tools count (only code execution can load a
+        clipped spreadsheet); the default is every tool that can read a file."""
+        return Recover("names", fragment, tuple(tools) or READERS)
 
     @staticmethod
     def region(image: str) -> "Recover":
         return Recover("region", str(image))
 
     @staticmethod
-    def search_more(pattern: str, path: str, seen: int) -> "Recover":
-        return Recover("search_more", str(pattern), (str(path), int(seen)))
+    def search_more(pattern: str, path: str, seen: int, glob: str = "", target: str = "content") -> "Recover":
+        return Recover("search_more", str(pattern), (str(path), int(seen), str(glob), str(target)))
 
     @staticmethod
     def refetch(urls: Iterable[str]) -> "Recover":
         return Recover("refetch", "", tuple(str(u) for u in urls))
 
     @staticmethod
-    def refetch_bigger(url: str, char_limit: int) -> "Recover":
-        return Recover("refetch_bigger", str(url), (int(char_limit),))
+    def refetch_bigger(url: str, budget: int) -> "Recover":
+        """The same URL fetched again with a char_limit clearly above the budget that cut it."""
+        return Recover("refetch_bigger", str(url), (int(budget),))
 
     def satisfied(self, later: list[Call]) -> bool:
+        later = [c for c in later if c.ok]
         if self.kind == "names":
-            return bool(self.key) and any(self.key in c.flat_args() for c in later
-                                          if not self.extra or c.tool in self.extra)
+            return bool(self.key) and any(c.tool in self.extra and self.key in c.flat_args() for c in later)
         if self.kind == "region":
             return any(c.tool == "vision_analyze" and c.args.get("region")
                        and str(c.args.get("image_url", "")) == self.key for c in later)
         if self.kind == "search_more":
-            path, seen = self.extra
+            path, seen, glob, target = self.extra
             for c in later:
-                if c.tool != "search_files" or str(c.args.get("pattern", "")) != self.key:
+                a = c.args
+                if c.tool != "search_files" or str(a.get("pattern", "")) != self.key:
                     continue
-                if str(c.args.get("path", "") or "") != path:
+                if (str(a.get("path", "") or "") != path or str(a.get("file_glob", "") or "") != glob
+                        or str(a.get("target") or "content") != target):
                     continue
-                offset = _num(c.args.get("offset"), 0)
-                limit = _num(c.args.get("limit"), C.SEARCH_DEFAULT_LIMIT)
+                offset = _num(a.get("offset"), 0)
+                limit = _num(a.get("limit"), C.SEARCH_DEFAULT_LIMIT)
                 if offset >= seen or offset + limit > seen:
                     return True
             return False
@@ -146,7 +191,7 @@ class Recover:
         if self.kind == "refetch_bigger":
             for c in later:
                 if c.tool == "web_extract" and self.key in {str(u) for u in (c.args.get("urls") or ())}:
-                    if _num(c.args.get("char_limit"), 0) > self.extra[0]:
+                    if _num(c.args.get("char_limit"), 0) > self.extra[0] + 1000:
                         return True
             return False
         return False
@@ -166,8 +211,9 @@ class Obs:
     # set by the engine
     call_index: int = -1
     tool_call_id: str = ""
-    recovered: bool = False
-    surfaced: bool = False
+    recovered: bool = False          # a follow-up on the missing part was seen later in the turn
+    surfaced: int = 0                # 0 not shown; 1 a card bullet; 2 counted under another bullet
+    noted: bool = False              # its note was actually written into the tool result
 
 
 # ── rules ──────────────────────────────────────────────────────────────────────────────────────────
@@ -247,7 +293,8 @@ def rule(rule_id: str, *, driver: str, tools: Iterable[str] = (), prefixes: Iter
 
 # ── per-turn buffer ────────────────────────────────────────────────────────────────────────────────
 class TurnState:
-    __slots__ = ("session_id", "turn_id", "calls", "obs", "raw_len", "notes", "note_chars", "t0", "touched")
+    __slots__ = ("session_id", "turn_id", "calls", "obs", "raw_len", "notes", "note_chars", "t0", "touched",
+                 "closed")
 
     def __init__(self, session_id: str, turn_id: str, now: float) -> None:
         self.session_id, self.turn_id = session_id, turn_id
@@ -257,6 +304,7 @@ class TurnState:
         self.notes = 0
         self.note_chars = 0
         self.t0 = self.touched = now
+        self.closed = False              # set when the turn is popped; a late hook must not append
 
 
 class TurnBuffer:
@@ -279,7 +327,30 @@ class TurnBuffer:
 
     def pop(self, session_id: str, turn_id: str) -> Optional[TurnState]:
         with self._lock:
-            return self._turns.pop((session_id, turn_id), None)
+            st = self._turns.pop((session_id, turn_id), None)
+            if st is not None:
+                st.closed = True
+            return st
+
+    def rename_session(self, old_id: str, new_id: str) -> None:
+        """Compaction can rotate the session id in the middle of a turn: keep the turn in one piece."""
+        with self._lock:
+            for key in [k for k in self._turns if k[0] == old_id]:
+                st = self._turns.pop(key)
+                st.session_id = new_id
+                target = self._turns.get((new_id, key[1]))
+                if target is None:
+                    self._turns[(new_id, key[1])] = st
+                else:                      # hooks already arrived under the new id: merge, old part first
+                    shift = len(st.calls)
+                    for obs in target.obs:
+                        if obs.call_index >= 0:
+                            obs.call_index += shift
+                    target.calls[:0] = st.calls
+                    target.obs[:0] = st.obs
+                    target.raw_len.update(st.raw_len)
+                    target.notes += st.notes
+                    target.note_chars += st.note_chars
 
     def pop_stale(self) -> list[TurnState]:
         """Turns nobody closed (background forks fire tool hooks but no end-of-turn hook)."""
@@ -289,18 +360,24 @@ class TurnBuffer:
                 keys = [k for k, st in self._turns.items() if st.touched < cutoff]
             else:
                 keys = sorted(self._turns, key=lambda k: self._turns[k].touched)[: len(self._turns) - self._max]
-            return [self._turns.pop(k) for k in keys]
+            stale = [self._turns.pop(k) for k in keys]
+            for st in stale:
+                st.closed = True
+            return stale
 
     def lock(self) -> threading.Lock:
         return self._lock
 
 
 # ── model notes ────────────────────────────────────────────────────────────────────────────────────
-def annotate(text: str, note: str) -> str:
+def annotate(text: str, note: str, is_object: Optional[bool] = None) -> str:
     """Put one bracketed line where it survives the 1,500-char spill preview: as the first key of a
-    JSON-object result (spliced in, the rest of the bytes untouched), else as a first line."""
+    JSON-object result (spliced in, the rest of the bytes untouched), else as a first line.
+    ``is_object`` passes on what the caller already parsed, so a large result is not parsed twice."""
     note = " ".join(note.split())[: C.NOTE_MAX_CHARS]
-    if text.startswith("{") and json_object(text) is not None:
+    if is_object is None:
+        is_object = json_object(text) is not None
+    if is_object and text.startswith("{"):
         body = text[1:]
         if body.strip() == "}":
             return '{"_fine_print": %s}' % json.dumps(note, ensure_ascii=False)

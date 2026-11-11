@@ -46,17 +46,21 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
   - `subject`: a short label that is safe to store and show: a URL host, a file basename, a tool
     name. Never a full URL, a path, a command or a search pattern.
   - `cause`: the dedup key inside a session (stored hashed); the same cause is carded once.
-  - `recover`: alternatives, any of which means the model got the missing part later in the turn:
-    `Recover.names(basename, tools=())`, `Recover.region(image)`, `Recover.search_more(pattern, path,
-    seen)`, `Recover.refetch(urls)`, `Recover.refetch_bigger(url, char_limit)`. Empty when nothing
-    the model does can recover it.
+  - `recover`: alternatives, any of which counts as a follow-up on the missing part later in the
+    turn: `Recover.names(basename, tools=())` (a reading tool names the saved file; default tools are
+    read_file, search_files, terminal, execute_code), `Recover.region(image)`,
+    `Recover.search_more(pattern, path, seen, glob, target)`, `Recover.refetch(urls)`,
+    `Recover.refetch_bigger(url, budget)`. Only successful calls count. A follow-up is evidence, not
+    proof of a complete recovery, and user-facing text says "followed up". Empty when nothing the
+    model does can fetch the missing part.
   - `severity`: `card` when an unrecovered hit likely changed the answer and there is something the
     user can do; `digest` for the rest (logged, counted, shown in `/limits`); `log` for bookkeeping.
   - `note`: one neutral, third-person sentence for the model, at most 200 characters, stating the
     fact and the existing lever. No imperatives addressed to the model.
-- **Text (P5).** `(line, fix)`: the line says what happened with before and after numbers; the fix is
-  a `hermes config set <key> <value>` command with a real key, a concrete workaround, or "Hardcoded
-  in v0.23.0." Every number comes from the observation, `constants.py` or the live config (`cfg(key,
+- **Text (P5).** `(line, fix)`: the line says what happened with before and after numbers and claims
+  only what was observed ("no follow-up read was seen", not "never read"); the fix is a `hermes config
+  set <key> <value>` command with a real key, a concrete workaround, or "Hardcoded in v0.23.0."
+  Return `None` as the fix to use the fix of the limit's catalogue entry. Every number comes from the observation, `constants.py` or the live config (`cfg(key,
   default)`). Never advise switching a safety feature off, never tell the user to edit the config
   file by hand.
 - **Budget.** A rule runs inside a hook on every matching tool call: no I/O beyond a bounded,

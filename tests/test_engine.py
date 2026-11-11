@@ -166,3 +166,50 @@ def test_annotate_keeps_json_valid_and_bytes_intact():
     assert annotate("{}", "n") == '{"_fine_print": "n"}'
     assert annotate("plain", "n") == "[fine-print: n]\nplain"
     assert len(json.loads(annotate('{"a": 1}', "x" * 900))["_fine_print"]) == 200
+
+
+def test_compaction_becomes_a_card_at_the_end_of_the_turn(fp, host):
+    fp.registry.get("compaction-stubs-old-tool-results-before-summary")  # registered
+    import dataclasses
+    from fine_print.engine import REGISTRY
+    rule = REGISTRY.get("compaction-stubs-old-tool-results-before-summary")
+    REGISTRY._rules[rule.id] = dataclasses.replace(rule, status="verified")
+    try:
+        fp.compaction(session_id="s2", old_session_id="s1", kind="summarize", reason="turn_start_threshold",
+                      before_tokens=182_000, after_tokens=41_000, messages_removed=34)
+        card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
+    finally:
+        REGISTRY._rules[rule.id] = rule
+    assert "34 messages were replaced by a summary, about 182,000 to 41,000 tokens" in card
+    assert "compression.protect_last_n" in card            # the fix comes from the catalogue entry
+
+
+def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host):
+    run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), session="old", turn="t1")
+    fp.compaction(session_id="new", old_session_id="old", kind="summarize", reason="post_tool",
+                  before_tokens=100_000, after_tokens=30_000, messages_removed=12)
+    run_tool(fp, "read_file", {"path": "/x/example.com-7cac558ea3.md"}, json.dumps({"content": "x"}), n=2,
+             session="new", turn="t1")
+    assert fp.turn_end(session_id="new", turn_id="t1", platform="cli") is None     # recovered after the rotation
+    rules = {e["rule_id"]: e for e in fp.ledger.session_events("new")}
+    assert rules["web_extract.head_tail_truncation"]["recovered"]
+    assert "compaction-stubs-old-tool-results-before-summary" in rules              # fixture-only: logged, no card
+
+
+def test_failed_summary_before_compaction_is_reported_as_likely_skeleton(fp, host):
+    fp.aux_call(aux_task="compression", error="timeout", error_type="TimeoutError")
+    fp.compaction(session_id="s1", kind="summarize", reason="manual", before_tokens=90_000, after_tokens=9_000,
+                  messages_removed=40)
+    fp.turn_end(session_id="s1", turn_id="t1", platform="cli")
+    assert "deterministic-fallback-summary" in {e["rule_id"] for e in fp.ledger.session_events("s1")}
+
+
+def test_output_cap_and_exit_reason_are_logged_not_carded(fp, host):
+    fp.api_response(session_id="s1", turn_id="t1", model="m", finish_reason="length", usage={"completion_tokens": 8192})
+    fp.api_response(session_id="s1", turn_id="t1", model="m", finish_reason="stop", usage={"completion_tokens": 10})
+    assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli") is None
+    assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli", turn_exit_reason="text_response(finish_reason=stop)") is None
+    assert fp.turn_end(session_id="s1", turn_id="t2", platform="cli", turn_exit_reason="budget_exhausted", failed=True) is None
+    rules = [e["rule_id"] for e in fp.ledger.session_events("s1")]
+    assert sorted(rules) == ["output-cap-and-length-continuation", "turn-and-subagent-caps"]
+    assert host.posted == []

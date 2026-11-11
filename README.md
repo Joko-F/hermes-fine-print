@@ -12,31 +12,32 @@ makes them visible the moment they shape an answer.
 
 ## What the author's own history says
 
-Before writing a detector, the rules were replayed over the author's own Hermes history: 102,308 tool
-results in 1,095 sessions over two months (`dev/replay.py`, read-only, aggregates only).
+The detectors were replayed over the author's own Hermes history: 102,786 tool results in 1,098
+sessions over two months (`dev/replay.py`, read-only, aggregates only; measured 2026-11-11).
 
 | What happened | How often | What the model did next |
 |---|---|---|
-| `web_extract` cut a page to head + tail | 642 pages; the model saw a median **39%** of a page, 62% of pages under half | went back for the middle in 19% of cases within the turn |
-| An image was downscaled before the model saw it | 876 images; median **4x** fewer pixels, up to 16x | zoomed in with a region crop in 5% |
-| `search_files` returned a full page with no "more" flag | 621 times | continued the search in under 1% |
+| `web_extract` cut a page to head + tail | 642 pages; the model saw a median **39%** of a page, 62% of pages under half | a follow-up read of the rest was seen for 19% within the turn |
+| An image was downscaled before the model saw it | 1,009 images; median **4x** fewer pixels, up to 28x | a region zoom on the same image followed for 5% |
+| `search_files` returned a full page with no "more" flag | 626 times | the same search was continued in under 1% |
 | `web_search` was answered by the keyless free tier, not the configured backend | 210 times, 23 of them empty | nothing to do: the result says "success" |
-| A tool result was replaced by a 1,500-char preview and a saved file | 41 times | opened the file in 95% |
+| A tool result was replaced by a 1,500-char preview and a saved file | 41 times | a read of the saved file followed for 95% |
 
-Hermes told the user about none of these. For the first two it does tell the model, and the model
-acts on it about one time in five. So the product is built around three things: a card for the user
-when the model did not recover, a note for the model only where core tells nobody, and a report over
-your own history.
+Hermes told the user about none of these. For the first two it does tell the model, and a follow-up is
+seen about one time in five or less. So the product is built around three things: a card for the user
+when no follow-up was seen, a note for the model only where core tells nobody, and a report over your
+own history. "Follow-up" is evidence, not proof: a later successful call of a tool that can fetch the
+missing part, aimed at the same target.
 
 ## What you get
 
 **1. A card after the turn.** One notice per turn, at most three bullets, only when all of this is
-true: a limit bit, the model did not recover within the turn, and there is something you can do.
+true: a limit bit, no follow-up by the model was seen within the turn, and there is something you can do.
 
 ```
 Fine Print · 1 silent limit hit this turn
-• web_extract · example.com: the model saw 14,983 of 24,116 chars (62%); the middle was cut and never read. Hermes told the model, not you.
-  Fix: ask the agent to read the rest of that page, or `hermes config set web.extract_char_limit 25000` (applies to the next call).
+• web_extract · example.com: the model saw 14,983 of 24,116 chars (62%); the middle was cut and no follow-up read was seen this turn. Hermes told the model, not you.
+  Fix: ask the agent to read the rest of that page from its saved copy, or `hermes config set web.extract_char_limit 25000` (read on the next call).
 details: /limits
 ```
 
@@ -47,8 +48,8 @@ card appears. The same cause is not shown twice in a session.
 placed first so it survives a spill preview:
 
 ```
-{"_fine_print": "search_files returned a full page (50 entries from offset 0). v0.23.0 stops reading at
-offset+limit and sets no truncated flag, so the real total is unknown; offset=50 continues the listing.",
+{"_fine_print": "search_files returned a full page (50 entries from offset 0). v0.23.0 sets no truncated
+flag here, so the real total is unknown and more may exist; offset=50 continues the listing.",
  "total_count": 50, ...}
 ```
 
@@ -59,7 +60,7 @@ tells the model (the web footer, the image scale note) Fine Print adds nothing.
 
 | Command | Shows |
 |---|---|
-| `/limits` | this session's hits, what was shown, what the model recovered, and what Fine Print itself added to the model's context |
+| `/limits` | this session's hits, what was shown, where the model followed up, and what Fine Print itself added to the model's context |
 | `/limits last` | the newest hit with its fix |
 | `/limits report [days]` | the same detectors over your own stored history (default 30 days), aggregates only |
 | `/limits topics`, `/limits web` ... | the reference: all catalogued limits by topic (images, web, files, tools, context, model, settings) |
@@ -80,22 +81,35 @@ hermes plugins install Joko-F/hermes-fine-print --enable      # straight from th
 Requires Hermes 0.23.0 or newer. No Python dependencies. New sessions pick it up; `/limits self-test`
 confirms it is running.
 
-## Live detectors in this version
+## Detectors in this version
 
-| Limit | Signal | Hermes tells | Status |
+| Limit | Seen by | Hermes tells | Status |
 |---|---|---|---|
-| `web_extract.head_tail_truncation` | the footer at the end of each cut page | the model | verified |
-| `native-embed-downscale-1568` | the scale note of `vision_analyze`, plus which trigger fired (1568 px edge or byte budget) | the model, coordinates only | verified |
-| `search-files-silent-page-cap` | `total_count == offset + limit` with no `truncated` key | nobody | verified |
-| `web_search.rescue_nested_error` | the `data.rescued_from` / `data.fallback_from` key | the model | verified |
-| `tool_result.spill_trap` | the `<persisted-output>` block at the start of the committed row | the model | verified |
-| `web_extract.url_cap_5` | more than 5 URLs in the call arguments | nobody | fixture-only |
-| `office-extraction-silent-loss` | rows, columns, hidden sheets, tables and footnotes counted from the file's own XML | nobody | fixture-only |
+| `tool_result.spill_trap` | commit driver | the model | verified |
+| `native-embed-downscale-1568` | tool driver | the model | verified |
+| `search-files-silent-page-cap` | tool driver | nobody | verified |
+| `web_extract.head_tail_truncation` | tool driver | the model | verified |
+| `web_search.rescue_nested_error` | tool driver | the model | verified |
+| `compaction-stubs-old-tool-results-before-summary` | compaction driver | the model and the user | fixture-only |
+| `deterministic-fallback-summary` | compaction driver | the model and the user | fixture-only |
+| `codex-incomplete-ladder` | response driver | the model and the user | fixture-only |
+| `output-cap-and-length-continuation` | response driver | the model and the user | fixture-only |
+| `office-extraction-silent-loss` | tool driver | nobody | fixture-only |
+| `web_extract.url_cap_5` | tool driver | nobody | fixture-only |
+| `empty-response-retries` | turn driver | the user | fixture-only |
+| `turn-and-subagent-caps` | turn driver | the model and the user | fixture-only |
 
 *Verified* means: unit tests on fixtures generated by the real Hermes v0.23.0 core functions, plus a
 replay over real history with sampled hits reviewed. Only verified rules raise cards. *Fixture-only*
-rules log, add their model note and show in `/limits`, but raise no card until they have been seen on
-real data. Everything else in the catalogue is reference-only in this version and says so.
+rules log, add their model note where one applies and show in `/limits`, but raise no card until they
+have been seen on real data. Everything else in the catalogue is reference-only in this version and
+says so.
+
+What the verified detectors read: the footer at the end of each cut `web_extract` page; the scale note
+of `vision_analyze` and which trigger fired (the 1568 px edge or the byte budget); the page size of a
+`search_files` result per output mode, with no `truncated` key; the `data.rescued_from` /
+`data.fallback_from` key of a `web_search` result; the `<persisted-output>` block at the start of a
+committed row.
 
 ## How it works
 
@@ -109,13 +123,17 @@ hooks -> rules -> observations -> turn buffer -> policy -> card | model note | l
   for a substring, so a file that merely mentions `[TRUNCATED]` or `rescued_from` raises nothing (there
   is a test that feeds this repository to the detectors).
 - `post_llm_call` closes the turn: it compares raw results with the rows that were committed to the
-  conversation, checks declaratively whether the model recovered (read the saved file, zoomed with a
-  region, continued with an offset, fetched the dropped URLs), writes the ledger once and posts at most
-  one card. `on_session_end` closes failed or interrupted turns.
+  conversation, checks declaratively whether the model followed up (a successful read of the saved
+  file, a region zoom on the same image, the same search continued, the dropped URLs fetched), writes
+  the ledger once and posts at most one card. `on_session_end` closes failed or interrupted turns.
+- `post_api_request` and `post_compaction` feed the response and compaction detectors with metadata
+  only (finish reason, token counts, messages removed); `post_auxiliary_call` is read for one fact,
+  whether a compaction's summary call failed.
 - `/limits report` runs the same rule functions over stored rows, so a card and the report cannot
   disagree.
-- A rule that raises is switched off and counted; an unknown format yields nothing. Formats are pinned
-  to v0.23.0 and `/limits self-test` says when the running version differs.
+- A rule that raises three times is switched off until the process restarts and shows as such in
+  `/limits self-test`; an unknown format yields nothing. Formats are pinned to v0.23.0 and the self-test
+  says when the running version differs or cannot be read.
 
 ## What it costs
 
@@ -126,8 +144,9 @@ Fine Print makes **no LLM calls and no network calls**.
 - What the model does receive is counted and shown by `/limits`: notes (at most 2 per turn, 200
   characters each, only for limits where core tells nobody) and the sheet (under 1,000 characters, once
   per new session, inside the cached prefix).
-- `/limits notes off` and `/limits sheet off` bring the added tokens to zero. Cards and the ledger
-  keep working.
+- `/limits notes off` stops the notes at once; `/limits sheet off` removes the sheet from new sessions
+  (a running session keeps its frozen prompt). With both off the plugin adds no tokens. Cards and the
+  ledger keep working.
 
 ## Disclosures
 
@@ -146,7 +165,9 @@ What a user should know before installing (catalog rule 13):
   footnotes in its XML. Advice numbers come from the Hermes config through `load_config_readonly`.
 - **Keeps a local ledger** in `plugin-data/fine-print/data.db`: rule id, numbers (sizes, counts,
   dimensions), a short label (a URL host, a file basename or a tool name) and a hash of the cause. No
-  content, no full URLs, no paths, no search patterns. Rows of a deleted session are purged.
+  content, no full URLs or query strings, no paths, no search patterns: numbers and labels pass a
+  filter before they are written. Rows of a deleted session are purged. Host names and file names are
+  metadata, but they are yours: the file stays on your machine.
 - **Posts a notice into the chat** after a turn. On messaging platforms a notice is a real message that
   a whole group sees, so cards default to local surfaces (CLI, TUI, Desktop) only.
 - No network, no telemetry, no subprocesses, no credentials, no middleware, no tools, no monkeypatching.
@@ -154,12 +175,12 @@ What a user should know before installing (catalog rule 13):
 
 ## All catalogued limits
 
-76 limits of Hermes v0.23.0; 7 have a live detector in this version, the rest are explained by `/limits explain <id>`. Generated by `dev/readme_table.py`.
+76 limits of Hermes v0.23.0; 13 have a live detector in this version, the rest are explained by `/limits explain <id>`. Generated by `dev/readme_table.py`.
 
 | Topic | Limit | Hermes tells | Fine Print |
 |---|---|---|---|
-| context | `compaction-stubs-old-tool-results-before-summary`: Compaction replaces old tool results with one-line stubs | both | reference |
-| context | `deterministic-fallback-summary`: A failed compaction summary is replaced by a short skeleton | both | reference |
+| context | `compaction-stubs-old-tool-results-before-summary`: Compaction replaces old tool results with one-line stubs | both | live, fixture-only |
+| context | `deterministic-fallback-summary`: A failed compaction summary is replaced by a short skeleton | both | live, fixture-only |
 | context | `lean-tail-small-verbatim-window-after-compaction`: After compaction only a small recent tail stays verbatim | model | reference |
 | context | `memory-caps-frozen-snapshot-and-blocked-entries`: Built-in memory: 2,200 + 1,375 chars, frozen per session | model | reference |
 | context | `model-name-gated-guidance`: Prompt guidance blocks depend on substrings in the model name | nobody | reference |
@@ -193,11 +214,11 @@ What a user should know before installing (catalog rule 13):
 | images | `video-aux-only`: Video is always described by the helper model and capped at 50 MB | model | reference |
 | images | `wsl-clipboard-paste-timeout`: Image paste from the clipboard on WSL times out after 8 seconds | user | reference |
 | model | `anthropic-oauth-wire-rewrites`: Anthropic OAuth rewrites the prompt identity and tool names | nobody | reference |
-| model | `codex-incomplete-ladder`: Codex 'incomplete' replies are continued up to 3 times, then fallback | both | reference |
-| model | `empty-response-retries`: An empty model reply triggers hidden paid retries | user | reference |
+| model | `codex-incomplete-ladder`: Codex 'incomplete' replies are continued up to 3 times, then fallback | both | live, fixture-only |
+| model | `empty-response-retries`: An empty model reply triggers hidden paid retries | user | live, fixture-only |
 | model | `fallback-switch-sticky`: After a provider error Hermes stays on the fallback model | user | reference |
 | model | `local-server-window-mismatch-silent-truncation`: A local server may silently truncate prompts to its own window | nobody | reference |
-| model | `output-cap-and-length-continuation`: model.max_tokens is ignored; truncated replies are stitched together | both | reference |
+| model | `output-cap-and-length-continuation`: model.max_tokens is ignored; truncated replies are stitched together | both | live, fixture-only |
 | model | `reasoning-effort-clamp-undisableable`: Reasoning effort is silently lowered to what the route supports | nobody | reference |
 | model | `text-tool-call-markup-stripped`: Tool calls written as text are removed from the reply | nobody | reference |
 | model | `transport-retries-hidden`: API calls are retried several times before any fallback | user | reference |
@@ -219,7 +240,7 @@ What a user should know before installing (catalog rule 13):
 | tools | `tool-search-defers-mcp-and-plugin-tools`: MCP and plugin tools are hidden behind tool_search | model | reference |
 | tools | `tool-silently-dropped-when-check_fn-fails`: A tool whose availability check fails silently disappears | nobody | reference |
 | tools | `tool_result.spill_trap`: Large tool results are replaced by a 1,500-char preview | model | live, verified |
-| tools | `turn-and-subagent-caps`: Agent turns and subagents stop at iteration caps | both | reference |
+| tools | `turn-and-subagent-caps`: Agent turns and subagents stop at iteration caps | both | live, fixture-only |
 | web | `native-web-search-swap`: Provider-side web search replaces Hermes's own web tools | nobody | reference |
 | web | `web-extract-stored-copy-2m-cap`: The saved 'full text' of a web page is cut at 2,000,000 chars | model | reference |
 | web | `web.cache_served_silently`: Cached web results are served without a freshness label | nobody | reference |
