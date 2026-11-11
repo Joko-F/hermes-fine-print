@@ -11,8 +11,8 @@ from typing import Any, Iterator, Optional
 
 from .. import constants as C
 from ..engine import Obs, Recover, ToolEvent, rule
-from ..signals import (basename, data_url_info, iter_image_urls, iter_text_parts, parse_scale_note,
-                       parse_web_footer, url_host)
+from ..signals import (basename, clean_token, data_url_info, iter_image_urls, iter_text_parts, parse_scale_note,
+                       parse_web_footer, safe_label, url_host)
 
 
 def _num(value: Any, default: int) -> int:
@@ -45,9 +45,12 @@ def web_cut(ev: ToolEvent) -> Iterator[Obs]:
         if saved:
             recover += (Recover.names(saved),)
         if url:
-            recover += (Recover.refetch_bigger(url, max(asked_limit, shown)),)
+            # the budget is the call's char_limit, else the configured default; never below what was shown
+            budget = max(asked_limit or C.WEB_EXTRACT_CHAR_LIMIT, shown)
+            recover += (Recover.refetch_bigger(url, budget),)
         yield Obs("web_extract.head_tail_truncation",
-                  numbers={"shown": shown, "total": total, "head": foot["head"], "tail": foot["tail"]},
+                  numbers={"shown": shown, "total": total, "head": foot["head"], "tail": foot["tail"],
+                           "saved": int(bool(saved))},
                   subject=url_host(url) or saved, cause=url or saved, recover=recover,
                   severity="card" if shown < 0.8 * total else "digest")
 
@@ -77,16 +80,19 @@ def search_rescued(ev: ToolEvent) -> Iterator[Obs]:
     data = (ev.json or {}).get("data")
     if not isinstance(data, dict):
         return
-    failed = data.get("rescued_from") or data.get("fallback_from")
-    if not isinstance(failed, str) or not failed:
+    rescued, fallback = data.get("rescued_from"), data.get("fallback_from")
+    if isinstance(rescued, str) and rescued:
+        kind, failed = "keyless", clean_token(rescued)       # the keyless free ring answered
+    elif isinstance(fallback, str) and fallback:
+        kind, failed = "managed", clean_token(fallback)      # managed primary -> managed fallback (billed)
+    else:
         return
-    served = data.get("served_by")
-    served = served if isinstance(served, str) and served else "the keyless free tier"
+    served = clean_token(data.get("served_by")) or "another backend"
     web = data.get("web")
     count = len(web) if isinstance(web, list) else -1
     yield Obs("web_search.rescue_nested_error",
-              numbers={"results": count, "failed": failed[:40], "served_by": served[:40]},
-              subject=f"{failed[:40]} -> {served[:40]}", cause=failed)
+              numbers={"results": count, "failed": failed, "served_by": served, "kind": kind},
+              subject=f"{failed} -> {served}", cause=f"{kind}:{failed}")
 
 
 # ── search_files ───────────────────────────────────────────────────────────────────────────────────
@@ -106,18 +112,30 @@ def search_page_full(ev: ToolEvent) -> Iterator[Obs]:
     if limit <= 0:
         return
     mode = args.get("output_mode") or "content"
-    total = obj.get("total_count")
-    # every content mode reports total_count = rows read so far = offset + rows on this page
-    if not isinstance(total, int) or isinstance(total, bool) or total != offset + limit:
+    # core reads offset+limit lines and never one more; what fills a page depends on the mode
+    # (tools/file_operations_search.py:460-476): files_only slices the page out of the lines read,
+    # count returns one entry per file read (total_count is the SUM of matches there, not a page size),
+    # content reports total_count = matches read so far.
+    if mode == "files_only":
+        files = obj.get("files")
+        full = isinstance(files, list) and len(files) == limit
+    elif mode == "count":
+        counts = obj.get("counts")
+        full = isinstance(counts, dict) and len(counts) == offset + limit
+    else:
+        total = obj.get("total_count")
+        full = isinstance(total, int) and not isinstance(total, bool) and total == offset + limit
+    if not full:
         return
     pattern, path = str(args.get("pattern", "")), str(args.get("path", "") or "")
+    glob = str(args.get("file_glob", "") or "")
     seen = offset + limit
     # A small page the model asked for itself is usually a deliberate sample: log it and tell the
     # model, but keep the card for pages of the default size or larger.
     yield Obs("search-files-silent-page-cap",
               numbers={"shown": limit, "offset": offset, "mode": str(mode)[:12]},
-              subject=str(mode)[:12], cause=f"{pattern}\0{path}\0{args.get('file_glob', '')}",
-              recover=(Recover.search_more(pattern, path, seen),),
+              subject=str(mode)[:12], cause=f"{pattern}\0{path}\0{glob}",
+              recover=(Recover.search_more(pattern, path, seen, glob, "content"),),
               severity="card" if limit >= C.SEARCH_DEFAULT_LIMIT else "digest",
               note=(f"search_files returned a full page ({limit} entries from offset {offset}). v0.23.0 sets no "
                     f"truncated flag here, so the real total is unknown and more may exist; offset={seen} "
@@ -160,7 +178,7 @@ def image_downscaled(ev: ToolEvent) -> Iterator[Obs]:
             numbers["mime"] = info["mime"]
         break
     image = str(ev.args.get("image_url") or "")
-    yield Obs("native-embed-downscale-1568", numbers=numbers, subject=basename(image) if image else "image",
+    yield Obs("native-embed-downscale-1568", numbers=numbers, subject=safe_label(image) or "image",
               cause=image, recover=(Recover.region(image),) if image else (),
               severity="card" if ratio >= 3.9 else "digest")
 
@@ -174,7 +192,11 @@ _REL = re.compile(rb"<Relationship\b[^>]*>")
 _REL_ID = re.compile(rb"\bId=\"([^\"]+)\"")
 _REL_TARGET = re.compile(rb"\bTarget=\"([^\"]+)\"")
 _ROW = re.compile(rb"<row[\s>]")
-_SCAN_MAX = 32 * 1024 * 1024          # decompressed bytes scanned per file at most
+_FIRST_ROW = re.compile(rb"<row[\s>].*?</row>", re.S)
+_CELL_REF = re.compile(rb"<c\b[^>]*?\br=\"([A-Z]+)\d+\"")
+_CELL = re.compile(rb"<c[\s>/]")
+_SCAN_MAX = 32 * 1024 * 1024          # decompressed bytes scanned per office file at most (all members)
+_META_MAX = 4 * 1024 * 1024           # workbook.xml / its rels above this are not read at all
 
 
 def _col_index(letters: bytes) -> int:
@@ -184,21 +206,54 @@ def _col_index(letters: bytes) -> int:
     return n
 
 
-def _count(zf: zipfile.ZipFile, name: str, pattern: "re.Pattern[bytes]") -> Optional[int]:
-    """Occurrences of ``pattern`` in a zip member, streamed; None when the member is too large to
-    scan within the hook's time budget (the caller then stays silent instead of guessing)."""
-    if zf.getinfo(name).file_size > _SCAN_MAX:
+class _Budget:
+    """One decompressed-bytes allowance per file, so a detector never does unbounded work in a hook."""
+
+    def __init__(self, total: int = _SCAN_MAX) -> None:
+        self.left = total
+
+    def take(self, zf: zipfile.ZipFile, name: str) -> bool:
+        size = zf.getinfo(name).file_size
+        if size > self.left:
+            return False
+        self.left -= size
+        return True
+
+
+def _scan(zf: zipfile.ZipFile, name: str, pattern: "re.Pattern[bytes]", budget: _Budget) -> Optional[list]:
+    """Every match of ``pattern`` in a zip member, streamed in one pass; None when the member does
+    not fit the file's budget (the caller then stays silent instead of guessing)."""
+    if not budget.take(zf, name):
         return None
-    total, tail = 0, b""
+    found, tail = [], b""
     with zf.open(name) as fh:
         while True:
             chunk = fh.read(1 << 20)
             data = tail + chunk
             if not chunk:
-                return total + sum(1 for _ in pattern.finditer(data))
-            cut = max(0, len(data) - 32)        # a match starting in the last 32 bytes is counted next round
-            total += sum(1 for m in pattern.finditer(data) if m.start() < cut)
+                found.extend(m.group(0) for m in pattern.finditer(data))
+                return found
+            cut = max(0, len(data) - 64)        # a match starting in the last 64 bytes is taken next round
+            found.extend(m.group(0) for m in pattern.finditer(data) if m.start() < cut)
             tail = data[cut:]
+
+
+def _small(zf: zipfile.ZipFile, name: str, members: set) -> bytes:
+    if name not in members or zf.getinfo(name).file_size > _META_MAX:
+        return b""
+    return zf.read(name)
+
+
+def _first_row_cols(zf: zipfile.ZipFile, name: str) -> int:
+    """Columns of a sheet that records no <dimension>: the widest cell reference in its first row
+    (the header), from the first 256 KB only. 0 means unknown."""
+    with zf.open(name) as fh:
+        head = fh.read(262_144)
+    m = _FIRST_ROW.search(head)
+    if not m:
+        return 0
+    refs = _CELL_REF.findall(m.group(0))
+    return max(map(_col_index, refs)) if refs else len(_CELL.findall(m.group(0)))
 
 
 def probe_xlsx(path: str) -> Optional[dict]:
@@ -208,8 +263,8 @@ def probe_xlsx(path: str) -> Optional[dict]:
     try:
         with zipfile.ZipFile(path) as zf:
             members = set(zf.namelist())
-            book = zf.read("xl/workbook.xml") if "xl/workbook.xml" in members else b""
-            rels = zf.read("xl/_rels/workbook.xml.rels") if "xl/_rels/workbook.xml.rels" in members else b""
+            book = _small(zf, "xl/workbook.xml", members)
+            rels = _small(zf, "xl/_rels/workbook.xml.rels", members)
             targets = {}
             for rel in _REL.findall(rels):
                 rid, target = _REL_ID.search(rel), _REL_TARGET.search(rel)
@@ -228,6 +283,7 @@ def probe_xlsx(path: str) -> Optional[dict]:
                 visible = sorted(n for n in members if n.startswith("xl/worksheets/sheet") and n.endswith(".xml"))
             rows = cols = 0
             known = False
+            budget = _Budget()
             for name in visible[:64]:
                 with zf.open(name) as fh:
                     head = fh.read(4096)
@@ -235,9 +291,10 @@ def probe_xlsx(path: str) -> Optional[dict]:
                 if m and m.group(2):
                     n_rows, n_cols = int(m.group(2)), _col_index(m.group(1))
                 else:
-                    n_rows, n_cols = _count(zf, name, _ROW), 0
-                    if n_rows is None:
+                    counted = _scan(zf, name, _ROW, budget)
+                    if counted is None:
                         continue
+                    n_rows, n_cols = len(counted), _first_row_cols(zf, name)
                 known = True
                 rows, cols = max(rows, n_rows), max(cols, n_cols)
     except (OSError, zipfile.BadZipFile, ValueError, KeyError):
@@ -245,25 +302,27 @@ def probe_xlsx(path: str) -> Optional[dict]:
     return {"rows": rows, "cols": cols, "hidden_sheets": hidden, "sheets": len(visible)} if known else None
 
 
-_DOCX_PARTS = {"tables": re.compile(rb"<w:tbl>"), "images": re.compile(rb"<w:drawing>|<w:pict>"),
-               "footnotes": re.compile(rb"<w:footnoteReference\b"), "endnotes": re.compile(rb"<w:endnoteReference\b"),
-               "comments": re.compile(rb"<w:commentReference\b")}
+_DOCX_TAGS = {b"<w:tbl>": "tables", b"<w:drawing>": "images", b"<w:pict>": "images",
+              b"<w:footnoteReference": "footnotes", b"<w:endnoteReference": "endnotes",
+              b"<w:commentReference": "comments"}
+_DOCX_ANY = re.compile(rb"<w:tbl>|<w:drawing>|<w:pict>|<w:footnoteReference\b|<w:endnoteReference\b|"
+                       rb"<w:commentReference\b")
 
 
 def probe_docx(path: str) -> Optional[dict]:
     """What read_file's paragraph-only extraction leaves out of a .docx: table structure, images,
-    footnotes, endnotes, comments, headers and footers. Counted from the document's own XML."""
+    footnotes, endnotes, comments, headers and footers. One pass over the document's own XML."""
     try:
         with zipfile.ZipFile(path) as zf:
             members = zf.namelist()
             if "word/document.xml" not in members:
                 return None
-            out = {}
-            for key, pattern in _DOCX_PARTS.items():
-                n = _count(zf, "word/document.xml", pattern)
-                if n is None:
-                    return None
-                out[key] = n
+            hits = _scan(zf, "word/document.xml", _DOCX_ANY, _Budget())
+            if hits is None:
+                return None
+            out = {"tables": 0, "images": 0, "footnotes": 0, "endnotes": 0, "comments": 0}
+            for hit in hits:
+                out[_DOCX_TAGS[hit]] += 1
             out["headers"] = sum(1 for n in members if re.fullmatch(r"word/(header|footer)\d*\.xml", n))
     except (OSError, zipfile.BadZipFile, ValueError, KeyError):
         return None

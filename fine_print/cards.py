@@ -13,10 +13,18 @@ from . import constants as C
 from .signals import short_hash
 
 Cfg = Callable[[str, Any], Any]
+TextFn = Callable[[dict, str, Cfg], tuple[str, Optional[str]]]
 
 
 def _pct(shown: int, total: int) -> str:
     return f"{max(1, round(100 * shown / total))}%" if total else "?"
+
+
+def spill_threshold(context_tokens: Any) -> int:
+    """Chars one tool result may have before core replaces it with a preview: min(100K, max(8K,
+    15% of the window in chars)). With an unknown window, assume a small one (64K tokens)."""
+    tokens = context_tokens if isinstance(context_tokens, int) and context_tokens > 0 else 64_000
+    return min(C.SPILL_RESULT_CHARS_MAX, max(C.SPILL_RESULT_CHARS_FLOOR, int(0.15 * tokens * 4)))
 
 
 def _g(value: float) -> str:
@@ -26,14 +34,18 @@ def _g(value: float) -> str:
 # ── per-rule text ──────────────────────────────────────────────────────────────────────────────────
 def _web_cut(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     line = (f"web_extract · {s}: the model saw {n['shown']:,} of {n['total']:,} chars "
-            f"({_pct(n['shown'], n['total'])}); the middle was cut and never read.")
-    if n["total"] <= 60_000:
-        want = (n["total"] // 5_000 + 1) * 5_000
-        fix = (f"ask the agent to read the rest of that page, or `hermes config set web.extract_char_limit "
-               f"{want}` (applies to the next call).")
+            f"({_pct(n['shown'], n['total'])}); the middle was cut and no follow-up read was seen this turn.")
+    saved = n.get("saved", 1)
+    ask = ("ask the agent to read the rest of that page from its saved copy" if saved
+           else "ask the agent to fetch that page again with a larger char_limit")
+    want = (n["total"] // 5_000 + 1) * 5_000
+    # A limit is only worth suggesting when a page that long still fits under the spill threshold,
+    # which scales with the model's context window (known once a response has been seen).
+    if want * 1.1 <= spill_threshold(cfg("@context_length", 0)):
+        fix = f"{ask}, or `hermes config set web.extract_char_limit {want}` (read on the next call)."
     else:
-        fix = ("ask the agent to read the rest from the saved copy. A web.extract_char_limit this large "
-               f"would spill the result to a {C.SPILL_PREVIEW_CHARS:,}-char preview instead.")
+        fix = (f"{ask}. A web.extract_char_limit large enough for this page would push the result over the "
+               f"spill threshold for this model, which leaves a {C.SPILL_PREVIEW_CHARS:,}-char preview instead.")
     return line, fix
 
 
@@ -44,12 +56,15 @@ def _url_cap(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 
 
 def _rescue(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    line = (f"web_search: the configured backend '{n['failed']}' failed this call; results came from "
-            f"{n['served_by']} on the keyless free tier.")
-    if n.get("results") == 0:
-        line += " It returned 0 results, which can be throttling rather than 'nothing found'."
-    return line, (f"check the {n['failed']} key or service status. `hermes config set web.keyless_rescue false` "
-                  "makes such failures visible as errors instead of a silent swap.")
+    empty = " It returned 0 results, which can be throttling rather than 'nothing found'." if n.get("results") == 0 else ""
+    if n.get("kind") == "managed":
+        return (f"web_search: the managed primary backend failed this call; results came from the managed "
+                f"fallback ({n['served_by']}).{empty}",
+                "nothing to change on your side; if it keeps happening, check the managed backend's status.")
+    return (f"web_search: the configured backend '{n['failed']}' failed this call; results came from "
+            f"{n['served_by']} on the keyless free tier.{empty}",
+            f"check the {n['failed']} key or service status. `hermes config set web.keyless_rescue false` "
+            "makes such failures visible as errors instead of a silent swap.")
 
 
 def _search_page(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
@@ -62,8 +77,9 @@ def _search_page(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 def _image(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     line = (f"vision_analyze · {s}: {n['orig_w']}x{n['orig_h']} was sent as {n['w']}x{n['h']} "
             f"({_g(n['ratio'])}x fewer pixels); small text and digits may be unreadable.")
-    zoom = (f"ask the agent to zoom in: a vision_analyze region crop up to {C.EMBED_MAX_DIMENSION:,} px "
-            "on its long edge arrives unscaled.")
+    zoom = (f"ask the agent to zoom in with a vision_analyze region crop: a crop of at most "
+            f"{C.EMBED_MAX_DIMENSION:,} px on its long edge is sent unscaled when it also fits the byte "
+            "budget, and its scale note shows what arrived.")
     if n.get("byte_cap"):
         cur = cfg("vision.embed_target_bytes", C.EMBED_TARGET_BYTES_DEFAULT)
         cur = cur if isinstance(cur, int) and not isinstance(cur, bool) else C.EMBED_TARGET_BYTES_DEFAULT
@@ -77,12 +93,12 @@ def _image(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 def _spill(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     if n.get("lost"):
         return (f"{s}: a {n['total']:,}-char result was cut to {n['shown']:,} chars and the rest could not be "
-                "saved; that part is gone.",
+                "saved anywhere.",
                 "ask the agent to rerun it with narrower output (a filter, a range, or a redirect to a file).")
     return (f"{s}: a {n['total']:,}-char result was replaced by a {n['shown']:,}-char preview and a saved "
-            "file; the model did not open the file.",
+            "file; no read of that file was seen this turn.",
             "ask the agent to page through the saved output (read_file offset/limit) or process it with "
-            "execute_code. The threshold is hardcoded in v0.23.0.")
+            "execute_code. The threshold scales with the model's context window.")
 
 
 def _office(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
@@ -105,7 +121,7 @@ def _office(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
             "ask the agent to load the workbook with execute_code for the full data. Hardcoded in v0.23.0.")
 
 
-TEXT: dict[str, Callable[[dict, str, Cfg], tuple[str, str]]] = {
+TEXT: dict[str, TextFn] = {
     "web_extract.head_tail_truncation": _web_cut,
     "web_extract.url_cap_5": _url_cap,
     "web_search.rescue_nested_error": _rescue,
@@ -123,7 +139,7 @@ def text(rule_id: str):
         def _some_limit(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
             return ("what happened, with the numbers from n", "the fix")
     """
-    def deco(fn: Callable[[dict, str, Cfg], tuple[str, str]]):
+    def deco(fn: TextFn) -> TextFn:
         if rule_id in TEXT:
             raise ValueError(f"duplicate text for {rule_id!r}")
         TEXT[rule_id] = fn
@@ -137,22 +153,30 @@ _TOLD = {
 }
 
 
-def told(core_tells: str, notes_on: bool) -> str:
+def told(core_tells: str, noted: bool) -> str:
     if core_tells == "nobody":
-        return "Hermes told nobody; Fine Print noted it for the model." if notes_on else "Hermes told nobody."
+        return "Hermes told nobody; Fine Print noted it for the model." if noted else "Hermes told nobody."
     return _TOLD.get(core_tells, "")
 
 
 def describe(rule_id: str, numbers: dict, subject: str, cfg: Cfg) -> tuple[str, str]:
     """(line, fix) for one observation; a generic line when a rule has no text yet or its numbers
-    are incomplete (an old ledger row), never an exception."""
+    are incomplete (an old ledger row), never an exception. A rule whose text returns no fix of its
+    own gets the fix of its catalogue entry, which is checked against the Hermes config."""
     fn = TEXT.get(rule_id)
+    line = fix = None
     if fn is not None:
         try:
-            return fn(numbers, subject, cfg)
+            line, fix = fn(numbers, subject, cfg)
         except (KeyError, TypeError, ValueError):
-            pass
-    return (f"{rule_id}{' · ' + subject if subject else ''}", "see /limits explain " + rule_id)
+            line = fix = None
+    if line is None:
+        line = f"{rule_id}{' · ' + subject if subject else ''}"
+    if fix is None:
+        from . import catalog
+        entry = catalog.get(rule_id)
+        fix = entry["fix"] if entry and entry.get("fix") else "see /limits explain " + rule_id
+    return line, fix
 
 
 # ── policy (P4) ────────────────────────────────────────────────────────────────────────────────────
@@ -177,9 +201,10 @@ def badness(numbers: dict) -> float:
 def decide(observations: list, *, status_of: Callable[[str], str], mutes: set,
            surfaced_causes: set, surfaced_counts: dict) -> tuple[list, int]:
     """Pick what becomes a card bullet. A bullet needs all of: a verified rule, not muted, the limit
-    bit, the model did not recover within the turn, card severity, and a cause not already shown in
-    this session. Returns (groups, more): each group is ``(worst_obs, count)``; ``more`` counts the
-    unrecovered hits that stay in /limits only."""
+    bit, no follow-up by the model within the turn, card severity, and a cause not already shown in
+    this session. Returns (groups, more): each group is ``(worst_obs, members)`` with the fresh
+    card-worthy hits of one rule; ``more`` counts the open hits that stay in /limits only. Nothing
+    is marked here: ``mark_surfaced`` runs after the card was really posted."""
     order: list[str] = []
     by_rule: dict[str, list] = {}
     more = 0
@@ -200,32 +225,36 @@ def decide(observations: list, *, status_of: Callable[[str], str], mutes: set,
             more += len(items)
             continue
         worst = max(fresh, key=lambda o: badness(o.numbers))
-        groups.append((worst, len(fresh)))
+        groups.append((worst, fresh))
         more += len(items) - len(fresh)
     groups.sort(key=lambda g: -badness(g[0].numbers))
-    for worst, count in groups[C.CARD_MAX_BULLETS:]:
-        more += count
-    groups = groups[: C.CARD_MAX_BULLETS]
-    for worst, _count in groups:
-        for obs in by_rule[worst.rule_id]:
-            if obs.severity == "card":
-                obs.surfaced = True
-    return groups, more
+    for _worst, members in groups[C.CARD_MAX_BULLETS:]:
+        more += len(members)
+    return groups[: C.CARD_MAX_BULLETS], more
+
+
+def mark_surfaced(groups: list) -> None:
+    """After a successful post: the bullet's own observation counts as one card (1); the others it
+    stands for are marked 2, so their causes are not shown again but do not use up the rule's quota."""
+    for worst, members in groups:
+        for obs in members:
+            obs.surfaced = 2
+        worst.surfaced = 1
 
 
 # ── card ───────────────────────────────────────────────────────────────────────────────────────────
-def render(groups: list, more: int, *, core_tells_of: Callable[[str], str], notes_on: bool, cfg: Cfg,
+def render(groups: list, more: int, *, core_tells_of: Callable[[str], str], cfg: Cfg,
            child_hits: int = 0) -> Optional[str]:
     """The card text, or None when nothing deserves one (hits that only count as 'more' never post)."""
     if not groups:
         return None
     k = len(groups)
     lines = [f"Fine Print · {k} silent limit{'s' if k != 1 else ''} hit this turn"]
-    for worst, count in groups:
+    for worst, members in groups:
         line, fix = describe(worst.rule_id, worst.numbers, worst.subject, cfg)
-        if count > 1:
-            line += f" (+{count - 1} more like it)"
-        who = told(core_tells_of(worst.rule_id), notes_on)
+        if len(members) > 1:
+            line += f" (+{len(members) - 1} more like it)"
+        who = told(core_tells_of(worst.rule_id), worst.noted)
         lines.append(f"• {line}{' ' + who if who else ''}")
         lines.append(f"  Fix: {fix}")
     tail = []

@@ -92,7 +92,7 @@ def strip_untrusted(text: Any) -> Any:
 # Preview (first 1500 chars):
 _PERSISTED = re.compile(
     r"\A<persisted-output>\s*This tool result was too large \(([\d,]+) characters[^)]*\)\.\s*"
-    r"Full output saved to: (\S+?)\.?\s"
+    r"Full output saved to: ([^\n]+)\n"
 )
 _PREVIEW = re.compile(r"Preview \(first ([\d,]+) chars\):")
 
@@ -105,13 +105,13 @@ def parse_persisted(content: Any) -> Optional[dict]:
     if not m:
         return None
     p = _PREVIEW.search(content[:1600])
-    return {"total": _int(m.group(1)), "path": m.group(2), "preview": _int(p.group(1)) if p else None}
+    return {"total": _int(m.group(1)), "path": m.group(2).strip(), "preview": _int(p.group(1)) if p else None}
 
 
 # The fallback when the full output could not be saved anywhere: the row keeps a head and ends with
 #   [Truncated: tool response was 120,000 chars. Full output could not be saved to sandbox.]
 _LOST_TAIL = re.compile(
-    r"\n\[Truncated: tool response was ([\d,]+) chars\. Full output could not be saved to sandbox\.\]\s*\Z"
+    r"\n\n\[Truncated: tool response was ([\d,]+) chars\. Full output could not be saved to sandbox\.\]\s*\Z"
 )
 
 
@@ -132,7 +132,8 @@ def parse_lost_tail(content: Any) -> Optional[dict]:
 #   Note: Image downscaled from 2752x3975 to 688x993 for vision; multiply any coordinates you report by 4.00 ...
 _SCALE_NOTE = re.compile(
     r"^(?:\[)?Note: Image downscaled from (\d+)x(\d+) to (\d+)x(\d+) for vision; "
-    r"multiply any coordinates you report by ([\d.]+)", re.M
+    r"multiply any (?:coordinates you report by [\d.]+|x coordinates you report by [\d.]+ "
+    r"and any y coordinates by [\d.]+) to map back", re.M
 )
 
 
@@ -223,6 +224,51 @@ def url_host(url: Any) -> str:
 
 def basename(path: Any) -> str:
     return str(path).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1][:120]
+
+
+def safe_label(value: Any) -> str:
+    """A short label for a file or URL that is safe to show and store: the last path segment only.
+    A URL loses its query, fragment and user info; a data URL becomes just "image"."""
+    text = str(value or "")
+    if text[:5].lower() == "data:":
+        return "image"
+    if "://" in text[:12]:
+        try:
+            text = urlsplit(text).path
+        except ValueError:
+            return ""
+    else:
+        text = text.split("?", 1)[0].split("#", 1)[0]
+    return basename(text)[:80]
+
+
+_TOKEN = re.compile(r"[^A-Za-z0-9_.:+-]")
+
+
+def clean_token(value: Any, limit: int = 40) -> str:
+    """A backend or model name copied from a tool result, reduced to a plain identifier."""
+    return _TOKEN.sub("", str(value or ""))[:limit]
+
+
+_STORED_JSON = "\x00json:"
+
+
+def decode_stored(content: Any) -> Any:
+    """Hermes stores structured message content (a list of parts) as ``\\x00json:`` + JSON. Return the
+    text of its text parts joined by newlines, so the history driver sees what a text row would hold;
+    anything else comes back unchanged. Image payloads are never decoded."""
+    if not isinstance(content, str) or not content.startswith(_STORED_JSON):
+        return content
+    try:
+        parts = json.loads(content[len(_STORED_JSON):])
+    except (ValueError, RecursionError):
+        return content
+    if isinstance(parts, str):
+        return parts
+    if not isinstance(parts, list):
+        return content
+    return "\n".join(p["text"] for p in parts
+                      if isinstance(p, dict) and p.get("type") == "text" and isinstance(p.get("text"), str))
 
 
 def iter_text_parts(envelope: Any) -> Iterator[str]:

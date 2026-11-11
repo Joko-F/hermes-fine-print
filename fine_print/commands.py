@@ -16,8 +16,8 @@ USAGE = ("Usage: /limits [last | topics | <topic> | explain <id> | report [days]
 
 def _state(event: dict) -> str:
     if event["recovered"]:
-        return "recovered by the model"
-    return "shown as a card" if event["surfaced"] else "not shown"
+        return "the model followed up"
+    return "shown as a card" if event["surfaced"] else "logged only"
 
 
 class Commands:
@@ -62,7 +62,7 @@ class Commands:
                 f"{info.get('note_chars', 0):,} chars of notes in {n} tool result{'s' if n != 1 else ''} this session "
                 f"(notes {'on' if notes_on else 'off'}); a {sheet:,}-char sheet per new session "
                 f"(sheet {'on' if sheet_on else 'off'}). No LLM calls, no network. "
-                "Zero it with /limits notes off and /limits sheet off.")
+                "/limits notes off stops the notes at once; /limits sheet off applies to new sessions.")
 
     def sheet_on(self) -> bool:
         value = self.fp.host.setting("sheet", True)
@@ -74,22 +74,22 @@ class Commands:
         if not events:
             lines.append("Fine Print · no silent limits hit in this session so far.")
         else:
-            shown = sum(1 for e in events if e["surfaced"])
-            recovered = sum(1 for e in events if e["recovered"])
-            quiet = len(events) - shown - recovered
-            parts = [f"{len(events)} limit hit{'s' if len(events) != 1 else ''}"]
+            counts = self.fp.ledger.session_counts(session_id)      # exact, the list below is capped
+            total, shown, recovered = counts["events"], counts["shown"], counts["recovered"]
+            quiet = total - shown - recovered
+            parts = [f"{total} limit hit{'s' if total != 1 else ''}"]
             if shown:
                 parts.append(f"{shown} shown as a card")
             if recovered:
-                parts.append(f"{recovered} recovered by the model")
-            if quiet:
+                parts.append(f"{recovered} followed up by the model")
+            if quiet > 0:
                 parts.append(f"{quiet} logged only")
             lines.append("Fine Print · this session: " + " · ".join(parts))
             for event in events[:8]:
-                line, _fix = describe(event["rule_id"], event["numbers"], event["subject"], self.fp.host.config)
+                line, _fix = describe(event["rule_id"], event["numbers"], event["subject"], self.fp.cfg_for(session_id))
                 lines.append(f"• {line} [{_state(event)}]")
-            if len(events) > 8:
-                lines.append(f"  … and {len(events) - 8} earlier")
+            if total > 8:
+                lines.append(f"  … and {total - 8} earlier")
             lines.append("/limits last shows the newest one with its fix.")
         lines.append(self._accounting(session_id))
         total = len(catalog.entries())
@@ -102,7 +102,7 @@ class Commands:
         if not events:
             return "Fine Print · nothing recorded in this session yet."
         event = events[0]
-        line, fix = describe(event["rule_id"], event["numbers"], event["subject"], self.fp.host.config)
+        line, fix = describe(event["rule_id"], event["numbers"], event["subject"], self.fp.cfg_for(session_id))
         return f"{line} [{_state(event)}]\nFix: {fix}\nMore: /limits explain {event['rule_id']}"
 
     # ── reference ──────────────────────────────────────────────────────────────────────────────────
@@ -165,14 +165,17 @@ class Commands:
         covered = {r.id for r in rules}
         running = self.hermes_version()
         lines = [f"Fine Print self-test · formats pinned to Hermes v{C.HERMES_VERSION}"
-                 + (f" · running v{running}" if running else "")]
-        if running and not running.startswith(C.HERMES_VERSION):
+                 + (f" · running v{running}" if running else " · running version unknown")]
+        if not running:
+            lines.append("  the running Hermes version could not be read: formats are unverified for it.")
+        elif not running.startswith(C.HERMES_VERSION):
             lines.append(f"  formats unverified for v{running}: a rule whose format does not parse stays silent.")
         lines.append(f"  detectors: {len(verified)} verified (raise cards) · {len(fixture)} fixture-only (log only) · "
                      f"{len(ids - covered)} of {len(ids)} catalogued limits are reference-only")
         for rule in rules:
             failed = self.fp.registry.failed.get(rule.id, 0)
-            state = "DISABLED after errors" if failed >= 3 else (f"{failed} errors" if failed else "ok")
+            state = ("OFF after 3 errors (until restart)" if failed >= 3
+                     else (f"{failed} errors" if failed else "no errors"))
             lines.append(f"  {rule.status:<8} {rule.driver:<10} {rule.id} · core tells {rule.core_tells} · {state}")
         stats = self.fp.stats
         totals = self.fp.ledger.totals()

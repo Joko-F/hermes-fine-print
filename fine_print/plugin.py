@@ -89,9 +89,13 @@ def register(ctx: Any) -> None:
     # commit driver: one card per turn; on_session_end also closes failed or interrupted turns
     ctx.register_hook("post_llm_call", observer(fp.turn_end))
     ctx.register_hook("on_session_end", observer(fp.turn_end))
+    # response driver: finish reason and token counts of each provider response
+    ctx.register_hook("post_api_request", observer(fp.api_response))
+    # compaction driver: what a committed compaction replaced, and whether its summary call failed
+    ctx.register_hook("post_auxiliary_call", observer(fp.aux_call))
+    ctx.register_hook("post_compaction", observer(fp.compaction))
     # bookkeeping
     ctx.register_hook("subagent_start", observer(fp.subagent_start))
-    ctx.register_hook("post_compaction", observer(fp.compaction))
     ctx.register_hook("on_session_delete", observer(fp.session_deleted))
 
     report = None

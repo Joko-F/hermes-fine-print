@@ -35,22 +35,37 @@ def table() -> str:
     return "\n".join(lines) + "\n"
 
 
+DETECTORS = "## Detectors in this version"
+TELLS = {"nobody": "nobody", "model": "the model", "user": "the user", "both": "the model and the user"}
+
+
+def detectors() -> str:
+    rules_ = sorted(REGISTRY.all(), key=lambda r: (r.status != "verified", r.driver, r.id))
+    lines = [DETECTORS, "", "| Limit | Seen by | Hermes tells | Status |", "|---|---|---|---|"]
+    for r in rules_:
+        status = "verified" if r.status == "verified" else "fixture-only"
+        lines.append(f"| `{r.id}` | {r.driver} driver | {TELLS.get(r.core_tells, r.core_tells)} | {status} |")
+    return "\n".join(lines) + "\n"
+
+
 def main() -> int:
     readme = ROOT / "README.md"
-    text = readme.read_text(encoding="utf-8")
-    pattern = re.compile(re.escape(HEADING) + r"\n.*?(?=\n## |\Z)", re.S)
-    new = table()
-    if not pattern.search(text):
-        print("README.md has no section", HEADING)
-        return 1
-    updated = pattern.sub(lambda _m: new.rstrip("\n") + "\n", text, count=1)
+    text = updated = readme.read_text(encoding="utf-8")
+    for heading, block, keep_tail in ((HEADING, table(), False), (DETECTORS, detectors(), True)):
+        # the detectors section keeps its hand-written paragraphs after the generated table
+        stop = r"(?=\n\*Verified\*|\n## |\Z)" if keep_tail else r"(?=\n## |\Z)"
+        pattern = re.compile(re.escape(heading) + r"\n.*?" + stop, re.S)
+        if not pattern.search(updated):
+            print("README.md has no section", heading)
+            return 1
+        updated = pattern.sub(lambda _m, b=block: b.rstrip("\n") + "\n", updated, count=1)
     if "--check" in sys.argv:
         if updated != text:
-            print("README.md limits table is stale: run python3 dev/readme_table.py")
+            print("README.md tables are stale: run python3 dev/readme_table.py")
             return 1
         return 0
     readme.write_text(updated, encoding="utf-8")
-    print("README.md table written")
+    print("README.md tables written")
     return 0
 
 

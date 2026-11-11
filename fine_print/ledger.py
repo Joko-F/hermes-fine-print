@@ -7,12 +7,34 @@ data directory (``plugin_db("fine-print")``, WAL); rows of a deleted session are
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import threading
 import time
 from typing import Any, Callable, Iterable, Optional
 
 from .signals import short_hash
+
+_TEXT_OK = re.compile(r"[^A-Za-z0-9 _.:+>/-]")
+
+
+def clean_numbers(numbers: Any) -> dict:
+    """What may enter the ledger from an observation: ints, floats, bools and short plain tokens.
+    Anything else is dropped; a string loses every character outside a small safe set."""
+    out: dict = {}
+    for key, value in (numbers.items() if isinstance(numbers, dict) else ()):
+        key = str(key)[:32]
+        if isinstance(value, bool) or isinstance(value, (int, float)):
+            out[key] = value
+        elif isinstance(value, str):
+            out[key] = _TEXT_OK.sub("", value)[:40]
+    return out
+
+
+def clean_subject(subject: Any) -> str:
+    """A label is a host, a file basename or a tool name: never a query string or a path."""
+    text = str(subject or "").split("?", 1)[0].split("#", 1)[0]
+    return text.replace("\n", " ")[:80]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
@@ -78,9 +100,9 @@ class Ledger:
     def record(self, session_id: str, turn_id: str, observations: Iterable[Any]) -> None:
         """One transaction per turn; ``observations`` are engine ``Obs`` objects."""
         now = self._now()
-        rows = [(now, session_id, turn_id, o.rule_id, (o.subject or "")[:120],
-                 short_hash(o.cause) if o.cause else "", json.dumps(o.numbers, ensure_ascii=False, default=str),
-                 int(bool(o.recovered)), int(bool(o.surfaced))) for o in observations]
+        rows = [(now, session_id, turn_id, o.rule_id, clean_subject(o.subject),
+                 short_hash(o.cause) if o.cause else "", json.dumps(clean_numbers(o.numbers), ensure_ascii=False),
+                 int(bool(o.recovered)), int(o.surfaced or 0)) for o in observations]
         if rows:
             self._write("INSERT INTO events(ts, session_id, turn_id, rule_id, subject, cause_hash, numbers_json, "
                         "recovered, surfaced) VALUES (?,?,?,?,?,?,?,?,?)", rows)
@@ -122,13 +144,21 @@ class Ledger:
 
     def surfaced_counts(self, session_id: str) -> dict[str, int]:
         rows = self._read("SELECT rule_id, COUNT(*) FROM events WHERE session_id = ? AND surfaced = 1 "
-                          "GROUP BY rule_id", (session_id,))
+                          "GROUP BY rule_id", (session_id,))      # 1 = a card bullet; 2 = grouped under one
         return {r[0]: r[1] for r in rows}
 
     def surfaced_causes(self, session_id: str) -> set[tuple]:
-        rows = self._read("SELECT DISTINCT rule_id, cause_hash FROM events WHERE session_id = ? AND surfaced = 1",
+        rows = self._read("SELECT DISTINCT rule_id, cause_hash FROM events WHERE session_id = ? AND surfaced >= 1",
                           (session_id,))
         return {(r[0], r[1]) for r in rows}
+
+    def session_counts(self, session_id: str) -> dict:
+        """Exact totals for a session and its subagents (the event list itself is capped)."""
+        rows = self._read("SELECT COUNT(*), COALESCE(SUM(surfaced >= 1), 0), COALESCE(SUM(recovered), 0) FROM events "
+                          "WHERE session_id = ? OR session_id IN (SELECT id FROM sessions WHERE parent_id = ?)",
+                          (session_id, session_id))
+        total, shown, recovered = rows[0]
+        return {"events": total, "shown": shown, "recovered": recovered}
 
     def session_info(self, session_id: str) -> dict:
         rows = self._read("SELECT first_seen, model, platform, note_chars, notes FROM sessions WHERE id = ?",
@@ -139,7 +169,7 @@ class Ledger:
         return {"first_seen": first, "model": model, "platform": platform, "note_chars": chars, "notes": notes}
 
     def totals(self) -> dict:
-        rows = self._read("SELECT COUNT(*), COALESCE(SUM(surfaced),0), COALESCE(SUM(recovered),0), "
+        rows = self._read("SELECT COUNT(*), COALESCE(SUM(surfaced >= 1),0), COALESCE(SUM(recovered),0), "
                           "COUNT(DISTINCT session_id) FROM events")
         n, surfaced, recovered, sessions = rows[0]
         return {"events": n, "surfaced": surfaced, "recovered": recovered, "sessions": sessions}
