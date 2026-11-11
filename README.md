@@ -12,25 +12,26 @@ makes them visible the moment they shape an answer.
 
 ## What the author's own history says
 
-The detectors were replayed over the author's own Hermes history: 103,081 tool results in 1,101
+The detectors were replayed over the author's own Hermes history: 103,603 tool results in 1,109
 sessions over two months (`dev/replay.py`, read-only, aggregates only; measured 2026-11-11).
 
 | What happened | How often | What the model did next |
 |---|---|---|
 | `web_extract` cut a page to head + tail | 642 pages; the model saw a median **39%** of a page, 62% of pages under half | a follow-up read of the rest was seen for 19% within the turn |
-| An image was downscaled before the model saw it | 1,009 images; median **4x** fewer pixels, up to 28x | a region zoom on the same image followed for 5% |
-| `search_files` returned a full page with no "more" flag | 626 times | the same search was continued in under 1% |
+| An image was downscaled before the model saw it | 1,013 images; median **4x** fewer pixels, up to 28x | a region zoom on the same image followed for 5% |
+| `search_files` returned a full page with no "more" flag | 633 times | the same search was continued in under 1% |
 | `web_search` was answered by the keyless free tier, not the configured backend | 210 times, 23 of them empty | nothing to do: the result says "success" |
-| `read_file` cut lines at the line-length cap | 185 reads; in 54 of them every line returned was cut (one-line JSON, minified files) | a follow-up with terminal or execute_code was seen for 26% of those 54 |
-| `terminal` output was captured as head + tail | 106 times; 36 kept under half of the output | a read of the saved log followed for 13% |
-| A tool result was replaced by a 1,500-char preview and a saved file | 41 times | a read of the saved file followed for 95% |
+| `read_file` cut lines at the line-length cap | 185 reads; in 54 of them every line returned was cut (one-line JSON, minified files) | a follow-up with terminal or execute_code was seen for 24% of those 54 |
+| `terminal` output was captured as head + tail | 106 times; 36 kept under half of the output | a read of the saved log followed for 10% |
+| A tool result was replaced by a 1,500-char preview and a saved file | 41 times | a read of the saved file followed for 93% |
 
 Hermes told the user about none of these. For most of them it does tell the model, and outside the last
 row a follow-up is seen about one time in four or less. So the product is built around three things: a
 card for the user when no follow-up was seen, a note for the model only where core tells nobody, and a
 report over your own history. "Follow-up" is evidence, not proof: a later successful call of a tool that
-can fetch the missing part, aimed at the same target. With these rules, 375 of the 3,483 turns that had
-tool calls (11%) would have ended with a card.
+can fetch the missing part, aimed at the same file or URL. Under the card policy, about 428 of the 3,492
+turns that had tool calls (12%) would have ended with a card; that is an estimate, replayed with the same
+detectors and the same policy.
 
 ## What you get
 
