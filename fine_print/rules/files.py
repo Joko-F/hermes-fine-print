@@ -7,13 +7,14 @@ from typing import Iterator
 
 from ..cards import Cfg, text
 from ..engine import CommitRow, Obs, Recover, ToolEvent, rule
-from ..signals import basename, strip_untrusted
+from ..signals import basename, safe_label, strip_untrusted
 
 # tools/file_operations.py:488-502, :813-819: the flag belongs to the read result;
 # the marker belongs at the end of a numbered content line. The cap is configurable.
 _CLAMPED_LINE = re.compile(r"^\d+\|(.*)\.\.\. \[truncated\]$", re.M)
-# tools/tool_result_storage.py:26, :36-37, :43-46: reserved cache directory + safe id.
-_SPILL_PATH = re.compile(r"\A/.*/cache/spillover/[A-Za-z0-9_.-]+\.txt\Z")
+# tools/tool_result_storage.py:26, :36-37, :43-46, :67-72: spill files live in the reserved
+# $HERMES_HOME/cache/spillover directory under a safe name; a "~/" spelling names the same file.
+_SPILL_PATH = re.compile(r"\A(?:/|~/)(?:.*/)?cache/spillover/[A-Za-z0-9_.-]+\.txt\Z")
 # tools/terminal_tool_result.py:190-193, tools/tool_output_truncate.py:15-16.
 _CAPTURE_NOTE = re.compile(
     r"\AOutput exceeded the capture window \(head\+tail shown\)\. "
@@ -72,17 +73,16 @@ def long_lines(ev: ToolEvent) -> Iterator[Obs]:
     count, prefix_max = clipped
     name = basename(path)
     yield Obs("long-line-clamps", numbers={"marked": count, "prefix_max": prefix_max},
-              subject=name, cause=path,
+              subject=safe_label(path), cause=path,
               recover=(Recover.names(name, ("execute_code", "terminal")),) if name else (),
               severity="card")
 
 
 @text("long-line-clamps")
-def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"read_file · {s}: line clipping flagged; {n['marked']} marked line(s), "
-            f"longest visible prefix {n['prefix_max']:,} chars; tails are missing.",
-            "ask the agent to slice those lines with execute_code or terminal; changing read_file offset "
-            "cannot reach a line's tail. tool_output.max_line_length raises the per-line cap for later reads.")
+def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
+    return (f"read_file · {s}: {n['marked']} line(s) came back cut with a '... [truncated]' marker "
+            f"(longest kept prefix {n['prefix_max']:,} chars); the rest of each line was not returned.",
+            None)
 
 
 @rule("terminal-capture-window-and-timeout", driver="tool", tools={"terminal"},
@@ -115,14 +115,14 @@ def terminal_window(ev: ToolEvent) -> Iterator[Obs]:
 
 
 @text("terminal-capture-window-and-timeout")
-def _terminal_window(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
+def _terminal_window(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
     if n.get("kind") == "timeout":
-        return (f"terminal: the foreground command was stopped after {n['timeout']:,} s.",
-                "ask the agent to save progress before retrying, set an explicit terminal timeout, "
-                "or use background execution for a longer job.")
-    return (f"terminal: the capture kept {n['shown']:,} of {n['total']:,} chars as head and tail; the middle was omitted.",
-            "ask the agent to search or page the saved full-output log, or raise tool_output.max_bytes "
-            "for later commands. Very large saved logs can themselves be capped.")
+        return (f"terminal: the foreground command hit its {n['timeout']:,} s timeout.",
+                "pass a larger timeout= to terminal (Hermes names 600 s as the foreground maximum) "
+                "or run the job with background=true.")
+    return (f"terminal: the capture kept {n['shown']:,} of {n['total']:,} chars (head and tail); "
+            "the middle was left out of the result and saved to a log file.",
+            None)
 
 
 @rule("spill-format-dead-end-v0.23", driver="tool", tools={"read_file"},
@@ -138,17 +138,16 @@ def spill_read_clamped(ev: ToolEvent) -> Iterator[Obs]:
     count, prefix_max = clipped
     name = basename(path)
     yield Obs("spill-format-dead-end-v0.23", numbers={"marked": count, "prefix_max": prefix_max},
-              subject=name, cause=path, recover=(Recover.names(name, ("execute_code", "terminal")),),
+              subject=safe_label(path), cause=path, recover=(Recover.names(name, ("execute_code", "terminal")),),
               severity="card")
 
 
 @text("spill-format-dead-end-v0.23")
-def _spill_read(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"saved result · {s}: clipping flagged on {n['marked']} marked line(s); "
-            f"longest visible prefix {n['prefix_max']:,} chars; "
-            "line-based paging cannot retrieve their tails.",
-            "ask the agent to parse or slice the saved result with execute_code or terminal, "
-            "rather than retrying read_file with another offset. Hardcoded paging behavior in v0.23.0.")
+def _spill_read(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
+    return (f"saved result · {s}: reading the saved file returned {n['marked']} line(s) cut with a "
+            f"'... [truncated]' marker (longest kept prefix {n['prefix_max']:,} chars); "
+            "read_file offset and limit select lines, so they cannot return the rest of a cut line.",
+            None)
 
 
 @rule("execute-code-timeout-call-cap", driver="tool", tools={"execute_code"},
@@ -168,10 +167,10 @@ def kernel_timeout(ev: ToolEvent) -> Iterator[Obs]:
 
 
 @text("execute-code-timeout-call-cap")
-def _kernel_timeout(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"execute_code: the cell exceeded {n['timeout']:,} s; its kernel was killed and variables were lost.",
-            "ask the agent to split work into shorter cells and save checkpoints to files; "
-            "code_execution.timeout changes the deadline for later cells, not the lost state.")
+def _kernel_timeout(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
+    return (f"execute_code: a cell passed its {n['timeout']:,} s timeout; Hermes reported the kernel "
+            "killed and its state lost.",
+            None)
 
 
 @rule("identical-result-stub", driver="commit", core_tells="model", status="fixture")
@@ -192,11 +191,10 @@ def identical_stub(row: CommitRow) -> Iterator[Obs]:
 
 
 @text("identical-result-stub")
-def _identical_stub(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
+def _identical_stub(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
     original = f"{n['total']:,}" if "total" in n else f"at least {n['minimum']:,}"
-    return (f"{s}: a repeated {original}-char result became a {n['shown']:,}-char reference to the earlier result.",
-            "the earlier result still applies; its saved copy can be read if it was spilled. "
-            "Hardcoded in v0.23.0; the tool still ran.")
+    return (f"{s}: a repeated {original}-char result was committed as a {n['shown']:,}-char reference to the earlier result.",
+            None)
 
 
 @rule("read-dedup-stub-after-spill", driver="tool", tools={"read_file"},
@@ -211,15 +209,15 @@ def read_unchanged(ev: ToolEvent) -> Iterator[Obs]:
     path = obj.get("path")
     if not isinstance(path, str) or not path or path != ev.args.get("path"):
         return
-    yield Obs("read-dedup-stub-after-spill", numbers={"shown": 0}, subject=basename(path),
+    yield Obs("read-dedup-stub-after-spill", numbers={"shown": 0}, subject=safe_label(path),
               cause=f"{path}:{ev.args.get('offset', 1)}:{ev.args.get('limit', 2000)}", severity="digest")
 
 
 @text("read-dedup-stub-after-spill")
-def _read_unchanged(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"read_file · {s}: an unchanged-region stub returned {n['shown']} content chars, referring to an earlier read.",
-            "if the earlier content is unavailable, a read_file call with a different limit is a new "
-            "request. Hardcoded deduplication in v0.23.0.")
+def _read_unchanged(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
+    return (f"read_file · {s}: a repeated read returned an 'unchanged' stub with {n['shown']} content chars, "
+            "pointing at the earlier read.",
+            None)
 
 
 @rule("search-skips-hidden-ignored", driver="tool", tools={"search_files"},
@@ -239,12 +237,12 @@ def hidden_probe(ev: ToolEvent) -> Iterator[Obs]:
         return
     path = str(ev.args.get("path") or "")
     yield Obs("search-skips-hidden-ignored", numbers={"shown": 0, "probe_matches": matches, "probe_files": files},
-              subject=basename(path) or "search_files", cause=f"{path}:{ev.args.get('pattern', '')}", severity="digest")
+              subject=safe_label(path) or "search_files", cause=f"{path}:{ev.args.get('pattern', '')}", severity="digest")
 
 
 @text("search-skips-hidden-ignored")
-def _hidden_probe(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"search_files · {s}: {n['shown']} visible matches; the fallback probe found "
-            f"{n['probe_matches']:,} matches in {n['probe_files']:,} hidden or ignored file(s), possibly a subset.",
-            "ask the agent to search the intended project with terminal rg --hidden --no-ignore, "
-            "keeping explicit exclusions for sensitive paths. Hardcoded defaults in v0.23.0.")
+def _hidden_probe(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
+    return (f"search_files · {s}: {n['shown']} visible matches; Hermes' follow-up probe found "
+            f"{n['probe_matches']:,} matches in {n['probe_files']:,} hidden or gitignored file(s) "
+            "(the probe reads at most 50 count rows, so these may be partial).",
+            None)

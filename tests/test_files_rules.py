@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from fine_print.cards import TEXT
+from fine_print.cards import TEXT, describe
 from fine_print.engine import REGISTRY, Call, CommitRow, ToolEvent
 import fine_print.rules  # noqa: F401
 
@@ -79,7 +79,7 @@ def test_unchanged_stub_is_digest_without_claiming_the_earlier_read_was_spilled(
     obs = found[0]
     assert obs.severity == "digest"
     assert obs.note is None
-    line, fix = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
+    line, fix = describe(obs.rule_id, obs.numbers, obs.subject, lambda key, default: default)
     assert "0 content chars" in line
     assert "spilled" not in line
     assert "different limit" in fix
@@ -107,3 +107,24 @@ def test_redaction_does_not_turn_a_visible_prefix_length_into_a_guessed_cap():
     assert obs.numbers == {"marked": 2, "prefix_max": 2000}
     line, _ = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
     assert "prefix" in line and "cut at" not in line
+
+
+def test_spill_path_shapes_and_single_owner_for_a_clamped_read():
+    data = json.loads((FIXTURES / "read_file_long_line_clamp.json").read_text())
+    ids = {}
+    for path in ("/home/dev/.hermes/cache/spillover/call_1.txt", "~/.hermes/cache/spillover/call_1.txt",
+                 "/home/dev/.hermes/cache/spillover/sub/call_1.txt", "/home/dev/cache/spillover-copy/call_1.txt",
+                 "/home/dev/notes/cache/spillover/call_1.md", "/home/dev/long_lines.txt"):
+        found = REGISTRY.run("tool", "read_file", ToolEvent("read_file", {"path": path}, data["result"]))
+        ids[path] = [o.rule_id for o in found]
+    assert ids["/home/dev/.hermes/cache/spillover/call_1.txt"] == ["spill-format-dead-end-v0.23"]
+    assert ids["~/.hermes/cache/spillover/call_1.txt"] == ["spill-format-dead-end-v0.23"]
+    assert ids["/home/dev/long_lines.txt"] == ["long-line-clamps"]
+    for path in list(ids)[2:5]:
+        assert ids[path] == ["long-line-clamps"], path
+
+
+def test_texts_use_the_catalogue_fix_where_none_is_given():
+    for rule_id in ("long-line-clamps", "spill-format-dead-end-v0.23", "execute-code-timeout-call-cap"):
+        line, fix = describe(rule_id, {"marked": 1, "prefix_max": 2000, "timeout": 300}, "x", lambda k, d: d)
+        assert line and fix and not fix.startswith("see /limits")
