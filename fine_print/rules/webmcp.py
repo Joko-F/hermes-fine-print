@@ -7,9 +7,10 @@ from typing import Iterator
 
 from ..cards import Cfg, text
 from ..engine import Obs, Recover, ToolEvent, rule
-from ..signals import basename, json_object, parse_web_footer, url_host
+from ..signals import basename, json_object, parse_web_footer, safe_label, url_host
 
-# plugins/web/_common.py:19; plugins/web/tavily/provider.py:104 (Hermes v0.23.0).
+# plugins/web/_common.py:19; tavily/provider.py:104, parallel/provider.py:62, perplexity/provider.py:66,229,
+# brave_free/provider.py:33, keenable/provider.py:53 cap at 20; exa, firecrawl, searxng and xai pass the limit through.
 _SEARCH_CAP = 20
 # tools/web_tools_truncate.py:22,70-74 (Hermes v0.23.0).
 _STORED_PAGE_CAP = 2_000_000
@@ -47,7 +48,7 @@ def web_copy_recovery(ev: ToolEvent) -> Iterator[Obs]:
     if not phase:
         return
     yield Obs('web_extract.pdf_from_url', numbers={'phase': phase, 'shown': shown, 'lines': 1, 'offset': offset},
-              subject=basename(path), cause=path,
+              subject=safe_label(path), cause=f'{path}:{phase}',
               recover=(Recover.names(basename(path), ('terminal', 'execute_code')),),
               severity='card' if phase == 'line_clamp' else 'digest')
 
@@ -55,8 +56,8 @@ def web_copy_recovery(ev: ToolEvent) -> Iterator[Obs]:
 @text('web_extract.pdf_from_url')
 def _web_copy_recovery(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     if n['phase'] == 'past_eof':
-        line = (f"read_file · {s}: offset {n['offset']} is past the cached web copy's {n['lines']} line; "
-                f"{n['shown']} chars returned.")
+        line = (f"read_file · {s}: offset {n['offset']} is past the end of this cached web copy "
+                f"({n['lines']} line); nothing was returned.")
     else:
         line = (f"read_file · {s}: the cached web copy has {n['lines']} line, clamped to {n['shown']:,} chars; "
                 'line offsets cannot reach its remaining text.')
@@ -66,7 +67,7 @@ def _web_copy_recovery(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 @rule('web_search.caps_and_snippets', driver='tool', tools={'web_search'},
       core_tells='nobody', status='fixture')
 def search_cap(ev: ToolEvent) -> Iterator[Obs]:
-    """A successful full vendor-cap page, when the caller explicitly requested more."""
+    """Exactly 20 rows after a request for more: the cap of several backends, not proof of which one ran."""
     asked = ev.args.get('limit')
     if not isinstance(asked, int) or isinstance(asked, bool) or asked <= _SEARCH_CAP:
         return
@@ -79,15 +80,15 @@ def search_cap(ev: ToolEvent) -> Iterator[Obs]:
         return
     yield Obs('web_search.caps_and_snippets', numbers={'asked': asked, 'shown': len(web), 'cap': _SEARCH_CAP},
               subject='web_search', cause=str(ev.args.get('query') or ''), severity='digest',
-              note=(f'web_search returned {len(web)} results for limit={asked}; bundled vendors cap results '
-                    f'at {_SEARCH_CAP}. The real match count is unknown. Narrower queries or web_extract can add coverage.'))
+              note=(f'web_search returned {len(web)} results for limit={asked}; several bundled backends return at '
+                    f'most {_SEARCH_CAP}. More matches may exist. Narrower queries or web_extract can add coverage.'))
 
 
 @text('web_search.caps_and_snippets')
 def _search_cap(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"web_search: {n['asked']} results requested, {n['shown']} returned at the bundled-vendor "
-            f"cap of {n['cap']}; the real match count is unknown.",
-            'ask the agent for several narrower queries, or web_extract the relevant hits. Hardcoded in v0.23.0.')
+    return (f"web_search: {n['asked']} results requested, {n['shown']} returned; several bundled backends stop at "
+            f"{n['cap']}, so the real match count is unknown.",
+            'ask the agent for several narrower queries, or to web_extract the relevant hits.')
 
 
 # tools/delegate_tool_results.py:211-238 (Hermes v0.23.0).
@@ -128,15 +129,14 @@ def summary_budget(ev: ToolEvent) -> Iterator[Obs]:
                                                      'tail': tail, 'stored': int(bool(saved))},
                   subject=f'child {index}' if index >= 0 else 'child summary',
                   cause=saved or f'{ev.tool_call_id}:{index}',
-                  recover=(Recover.names(basename(saved), ('read_file', 'search_files', 'execute_code', 'terminal')),)
-                  if saved else (), severity='card' if shown < 0.8 * total else 'digest')
+                  recover=(Recover.names(basename(saved)),) if saved else (), severity='card' if shown < 0.8 * total else 'digest')
 
 
 @text('subagent-summary-budget')
 def _summary_budget(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     return (f"delegate_task · {s}: {n['shown']:,} of {n['total']:,} summary chars reached the parent; "
-            + ('the full summary was saved.' if n['stored'] else 'the omitted middle could not be saved.'),
-            'ask the agent to read the saved summary, if available, or use fewer children and compact structured reports.')
+            + ('the full summary was saved to a file.' if n['stored'] else 'the omitted middle could not be saved.'),
+            None)
 
 
 @rule('web-extract-stored-copy-2m-cap', driver='tool', tools={'web_extract'},
@@ -175,7 +175,7 @@ _BATCH_TIMEOUT = re.compile(r'Extract timed out after (\d+)s via ([a-zA-Z0-9_.-]
 @rule('web_extract.batch_timeout', driver='tool', tools={'web_extract'}, core_tells='model', status='fixture')
 def batch_timeout(ev: ToolEvent) -> Iterator[Obs]:
     rows = (ev.json or {}).get('results')
-    if not isinstance(rows, list) or not rows:
+    if not isinstance(rows, list) or len(rows) < 2:  # one URL timing out is a plain timeout, not a batch loss
         return
     matches = []
     for row in rows:
@@ -250,31 +250,28 @@ def image_repeat_cap(ev: ToolEvent) -> Iterator[Obs]:
         return
     image = str(ev.args.get('image_url') or '')
     yield Obs('subagent-image-repeat-cap', numbers={'loads': loads, 'cap': cap},
-              subject=url_host(image) or ('image' if image.startswith('data:') else basename(image)) or 'image',
-              cause=image, severity='digest')
+              subject=url_host(image) or safe_label(image) or 'image', cause=image, severity='digest')
 
 
 @text('subagent-image-repeat-cap')
 def _image_repeat_cap(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     return (f"vision_analyze · {s}: another native load was refused after {n['loads']} loads "
             f"at the per-image cap of {n['cap']}.",
-            'the image is already in context; reuse it or pass distinct crops directly when delegating.')
+            None)
 
 
-# tools/session_search_tool.py:237-251,299-308,325-351,456; scroll at :569 is uncapped.
-_SESSION_EXCERPT_CAPS = (1200, 2000, 4000)
-
-
+# tools/session_search_tool.py:237-251 (_shape_message), :299-308,347 (discover: 4000 for the matched window,
+# 1200 for bookends), :456 (read: 2000). The scroll path at :569 passes no cap.
 def _session_excerpts(obj: dict):
     if obj.get('mode') == 'read':
-        groups = [(obj.get('session_id'), obj.get('messages'))]
+        groups = [(obj.get('session_id'), obj.get('messages'), 2000)]
     elif obj.get('mode') == 'discover' and isinstance(obj.get('results'), list):
-        groups = [(row.get('session_id'), row.get(key)) for row in obj['results'] if isinstance(row, dict)
-                  for key in ('messages', 'bookend_start', 'bookend_end')]
+        groups = [(row.get('session_id'), row.get(key), cap) for row in obj['results'] if isinstance(row, dict)
+                  for key, cap in (('messages', 4000), ('bookend_start', 1200), ('bookend_end', 1200))]
     else:
         return
     best = {}
-    for sid, messages in groups:
+    for sid, messages, cap in groups:
         if not isinstance(sid, str) or not isinstance(messages, list):
             continue
         for message in messages:
@@ -282,14 +279,11 @@ def _session_excerpts(obj: dict):
                 continue
             content, total, mid = message.get('content'), message.get('original_content_chars'), message.get('id')
             if (not isinstance(content, str) or not content.endswith('…') or type(total) is not int
-                    or type(mid) is not int or len(content) - 1 not in _SESSION_EXCERPT_CAPS):
-                continue
-            shown = len(content) - 1
-            if shown >= total:
+                    or type(mid) is not int or len(content) - 1 != cap or total <= cap):
                 continue
             previous = best.get((sid, mid))
-            if previous is None or shown > previous[0]:
-                best[(sid, mid)] = (shown, total)
+            if previous is None or cap > previous[0]:
+                best[(sid, mid)] = (cap, total)
     for (sid, mid), (shown, total) in best.items():
         yield sid, mid, shown, total
 
@@ -310,21 +304,3 @@ def _session_message_cap(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     return (f"session_search: this excerpt returned {n['shown']:,} of {n['total']:,} chars of one stored message.",
             f"ask the agent to scroll that session with around_message_id={n['message_id']}; "
             'the v0.23.0 scroll path has no per-message character cap.')
-
-
-@rule('video-aux-only', driver='tool', tools={'video_analyze'}, core_tells='model', status='fixture')
-def video_helper_text(ev: ToolEvent) -> Iterator[Obs]:
-    """tools/vision_tools.py:1122-1146 always uses the auxiliary path; :863 returns its text."""
-    obj = ev.json
-    if obj is None or obj.get('success') is not True or not isinstance(obj.get('analysis'), str) or obj.get('error'):
-        return
-    video = str(ev.args.get('video_url') or '')
-    yield Obs('video-aux-only', numbers={'analysis_chars': len(obj['analysis'])},
-              subject=url_host(video) or ('video' if video.startswith('data:') else basename(video)) or 'video',
-              cause=video, severity='digest')
-
-
-@text('video-aux-only')
-def _video_helper_text(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"video_analyze · {s}: {n['analysis_chars']:,} chars of helper analysis returned, not a native video attachment.",
-            'for missing detail, ask about a specific timestamp or a shorter clip; auxiliary.vision selects the helper.')

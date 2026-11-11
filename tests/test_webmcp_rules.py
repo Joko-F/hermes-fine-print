@@ -101,7 +101,7 @@ def test_image_repeat_refusal_is_digest_and_does_not_claim_child_identity():
     assert obs.numbers == {'loads': 3, 'cap': 3}
     line, fix = describe(obs.rule_id, obs.numbers, obs.subject, lambda key, default: default)
     assert 'subagent' not in line
-    assert 'already' in fix
+    assert 'vision.max_calls_per_image' in fix  # the catalog entry's fix, validated against the config
     assert obs.note is None
 
 
@@ -116,22 +116,38 @@ def test_session_message_caps_are_digest_and_scroll_is_not_called_unreachable():
     assert discovered.numbers['shown'] == 4000
 
 
-def test_video_helper_route_is_digest_not_a_claim_of_lost_video_bytes():
-    data, obs = observation('video_helper_text')
-    assert obs.severity == 'digest'
-    assert obs.numbers == {'analysis_chars': len(json.loads(data['result'])['analysis'])}
-    assert obs.note is None
-    line, _ = describe(obs.rule_id, obs.numbers, obs.subject, lambda key, default: default)
-    assert 'helper' in line
-    assert 'native video' in line
-
-
 def test_media_subjects_store_hosts_not_url_queries():
-    for name, tool, key in [('image_repeat_refusal', 'vision_analyze', 'image_url'),
-                            ('video_helper_text', 'video_analyze', 'video_url')]:
-        data = json.loads((FIX / f'webmcp_{name}.json').read_text(encoding='utf-8'))
-        found = [o for o in REGISTRY.run('tool', tool,
-                                        ToolEvent(tool, {key: 'https://example.com/media?label=private-label'}, data['result']))
+    data = json.loads((FIX / 'webmcp_image_repeat_refusal.json').read_text(encoding='utf-8'))
+    for image, subject in [('https://example.com/media?label=private-label', 'example.com'),
+                           ('/home/dev/private dir/shot.png?token=abc', 'shot.png'),
+                           ('data:image/png;base64,AAAA', 'image')]:
+        found = [o for o in REGISTRY.run('tool', 'vision_analyze',
+                                        ToolEvent('vision_analyze', {'image_url': image}, data['result']))
                  if o.rule_id == data['limit_id']]
         assert len(found) == 1
-        assert found[0].subject == 'example.com'
+        assert found[0].subject == subject
+
+
+def test_session_excerpt_caps_must_match_the_core_cap_of_that_key():
+    """A 1,200-char clip is a bookend cap; the same length under the 4,000-char window key is not core output."""
+    def clipped(n):
+        return {'id': 3, 'role': 'tool', 'content': 'x' * n + '…', 'content_truncated': True,
+                'original_content_chars': 9000}
+    def run(row):
+        body = json.dumps({'success': True, 'mode': 'discover', 'results': row})
+        return [o for o in REGISTRY.run('tool', 'session_search', ToolEvent('session_search', {}, body))
+                if o.rule_id == 'session-search-recovery-cap-4k']
+    assert len(run([{'session_id': 's1', 'bookend_start': [clipped(1200)]}])) == 1
+    assert run([{'session_id': 's1', 'messages': [clipped(1200)]}]) == []
+    assert len(run([{'session_id': 's1', 'messages': [clipped(4000)], 'bookend_start': [clipped(1200)]}])) == 1
+
+
+def test_web_copy_recovery_needs_a_core_cache_file_name():
+    data = json.loads((FIX / 'webmcp_web_recovery_eof.json').read_text(encoding='utf-8'))
+    def run(path):
+        return [o for o in REGISTRY.run('tool', 'read_file', ToolEvent('read_file', {**data['args'], 'path': path},
+                                                                       data['result']))
+                if o.rule_id == 'web_extract.pdf_from_url']
+    assert len(run(data['args']['path'])) == 1
+    assert run('/home/dev/notes/cache/web/readme.md') == []
+    assert run('/home/dev/project/example.com-6b86b07739.md') == []
