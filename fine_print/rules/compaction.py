@@ -12,7 +12,7 @@ _KINDS = frozenset({"summarize", "micro_summarize", "prune_tool_results"})
 
 
 @rule("compaction-stubs-old-tool-results-before-summary", driver="compaction", core_tells="both",
-      status="fixture")
+      status="verified")
 def compacted(ev: CompactionEvent) -> Iterator[Obs]:
     """Before the summary is written, every tool result outside the protected tail and over 200
     chars becomes a one-line stub. Core shows a status line with no numbers."""

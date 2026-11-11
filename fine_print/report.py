@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import os
 import sqlite3
 import statistics
 import time
@@ -23,6 +24,12 @@ MAX_SECONDS = 25.0
 
 
 def _state_db() -> Path:
+    """The active profile's session database. ``FINE_PRINT_STATE_DB`` points the report at another
+    copy instead (tests, or a demo profile that has no history of its own); it is opened read-only
+    like the default."""
+    override = os.environ.get("FINE_PRINT_STATE_DB")
+    if override:
+        return Path(override).expanduser()
     from hermes_constants import get_hermes_home
     return Path(get_hermes_home()) / "state.db"
 

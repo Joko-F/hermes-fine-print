@@ -169,19 +169,13 @@ def test_annotate_keeps_json_valid_and_bytes_intact():
 
 
 def test_compaction_becomes_a_card_at_the_end_of_the_turn(fp, host):
-    fp.registry.get("compaction-stubs-old-tool-results-before-summary")  # registered
-    import dataclasses
-    from fine_print.engine import REGISTRY
-    rule = REGISTRY.get("compaction-stubs-old-tool-results-before-summary")
-    REGISTRY._rules[rule.id] = dataclasses.replace(rule, status="verified")
-    try:
-        fp.compaction(session_id="s2", old_session_id="s1", kind="summarize", reason="turn_start_threshold",
-                      before_tokens=182_000, after_tokens=41_000, messages_removed=34)
-        card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
-    finally:
-        REGISTRY._rules[rule.id] = rule
+    fp.compaction(session_id="s2", old_session_id="s1", kind="summarize", reason="turn_start_threshold",
+                  before_tokens=182_000, after_tokens=41_000, messages_removed=34)
+    card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
     assert "34 messages were replaced by a summary, about 182,000 to 41,000 tokens" in card
     assert "compression.protect_last_n" in card            # the fix comes from the catalogue entry
+    fp.compaction(session_id="s2", kind="prune_tool_results", reason="proactive_prune", messages_removed=0)
+    assert fp.turn_end(session_id="s2", turn_id="t2", platform="cli") is None      # small ones are logged only
 
 
 def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host):
@@ -190,10 +184,11 @@ def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host)
                   before_tokens=100_000, after_tokens=30_000, messages_removed=12)
     run_tool(fp, "read_file", {"path": "/x/example.com-7cac558ea3.md"}, json.dumps({"content": "x"}), n=2,
              session="new", turn="t1")
-    assert fp.turn_end(session_id="new", turn_id="t1", platform="cli") is None     # recovered after the rotation
+    card = fp.turn_end(session_id="new", turn_id="t1", platform="cli")
+    assert "context compaction (post_tool)" in card and "web_extract" not in card   # the page was followed up
     rules = {e["rule_id"]: e for e in fp.ledger.session_events("new")}
-    assert rules["web_extract.head_tail_truncation"]["recovered"]
-    assert "compaction-stubs-old-tool-results-before-summary" in rules              # fixture-only: logged, no card
+    assert rules["web_extract.head_tail_truncation"]["recovered"]                   # ... after the rotation
+    assert rules["compaction-stubs-old-tool-results-before-summary"]["surfaced"]
 
 
 def test_failed_summary_before_compaction_is_reported_as_likely_skeleton(fp, host):
