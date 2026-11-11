@@ -55,7 +55,7 @@ def web_cut(ev: ToolEvent) -> Iterator[Obs]:
                   severity="card" if shown < 0.8 * total else "digest")
 
 
-@rule("web_extract.url_cap_5", driver="tool", tools={"web_extract"}, core_tells="nobody", status="fixture")
+@rule("web_extract.url_cap_5", driver="tool", tools={"web_extract"}, core_tells="nobody", status="verified")
 def web_url_cap(ev: ToolEvent) -> Iterator[Obs]:
     """The handler slices ``urls[:5]``: later URLs are never passed on and get no result entry.
     Whether the first five were fetched is a separate matter (each has its own entry)."""
@@ -343,7 +343,7 @@ def _office_path(ev: ToolEvent, suffix: str) -> Optional[str]:
 
 
 @rule("office-extraction-silent-loss", driver="tool", tools={"read_file"}, core_tells="nobody",
-      status="fixture")
+      status="verified")
 def office_clipped(ev: ToolEvent) -> Iterator[Obs]:
     """read_file extracts .xlsx and .docx with stdlib parsers: 5,000 rows per sheet, 256 columns,
     hidden sheets skipped; .docx keeps paragraphs only. Nothing in the result says so; the file's own

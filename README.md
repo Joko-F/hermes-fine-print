@@ -57,6 +57,11 @@ counted independently by a probe plugin:
   setting, 22 `vision_analyze` calls put no pixels into the conversation at all.
 - **A pinned window is not in force.** With `model.context_length: 32000` in the config and `-m` another
   model, the session ran with a 1,000,000-token window; Hermes writes that to a debug log only.
+- **Two limits Hermes tells nobody about** had no hit in two months of history and were checked the same
+  way. Six URLs in one `web_extract` call: five pages came back and the sixth was never requested. A
+  workbook of 12,431 rows with a hidden sheet read by `read_file`: 5,000 rows arrived, the hidden sheet
+  did not, and nothing in the result said so. Both end the turn with a card, and the model gets a note
+  inside the tool result (asked how many rows the workbook has, it answered 12,431 from that note).
 
 ## What you get
 
@@ -122,11 +127,15 @@ confirms it is running.
 | `compaction-stubs-old-tool-results-before-summary` | compaction driver | the model and the user | verified |
 | `cli-text-mode-image-description` | route driver | the model and the user | verified |
 | `context-length-pin-ignored` | session driver | nobody | verified |
+| `execute-code-timeout-call-cap` | tool driver | the model | verified |
 | `long-line-clamps` | tool driver | the model | verified |
 | `native-embed-downscale-1568` | tool driver | the model | verified |
+| `office-extraction-silent-loss` | tool driver | nobody | verified |
 | `search-files-silent-page-cap` | tool driver | nobody | verified |
+| `search-skips-hidden-ignored` | tool driver | the model | verified |
 | `terminal-capture-window-and-timeout` | tool driver | the model | verified |
 | `web_extract.head_tail_truncation` | tool driver | the model | verified |
+| `web_extract.url_cap_5` | tool driver | nobody | verified |
 | `web_search.rescue_nested_error` | tool driver | the model | verified |
 | `outbound-image-eviction` | wire driver | the model | verified |
 | `transport-retries-hidden` | api_error driver | the user | fixture-only |
@@ -137,9 +146,6 @@ confirms it is running.
 | `codex-oauth-context-cap` | session driver | nobody | fixture-only |
 | `compaction-trigger-floor-and-codex-autoraise` | session driver | the user | fixture-only |
 | `browser-exec-stderr-head-only` | tool driver | the model | fixture-only |
-| `execute-code-timeout-call-cap` | tool driver | the model | fixture-only |
-| `office-extraction-silent-loss` | tool driver | nobody | fixture-only |
-| `search-skips-hidden-ignored` | tool driver | the model | fixture-only |
 | `session-search-recovery-cap-4k` | tool driver | the model | fixture-only |
 | `spill-format-dead-end-v0.23` | tool driver | the model | fixture-only |
 | `subagent-image-repeat-cap` | tool driver | the model | fixture-only |
@@ -147,7 +153,6 @@ confirms it is running.
 | `web-extract-stored-copy-2m-cap` | tool driver | nobody | fixture-only |
 | `web_extract.batch_timeout` | tool driver | the model | fixture-only |
 | `web_extract.pdf_from_url` | tool driver | the model | fixture-only |
-| `web_extract.url_cap_5` | tool driver | nobody | fixture-only |
 | `web_search.caps_and_snippets` | tool driver | nobody | fixture-only |
 | `empty-response-retries` | turn driver | the user | fixture-only |
 | `turn-and-subagent-caps` | turn driver | the model and the user | fixture-only |
@@ -294,10 +299,10 @@ What a user should know before installing (catalog rule 13):
 | context | `summarizer-input-capped-and-sampled`: The compaction summary is written from a truncated view | nobody | reference |
 | files | `gateway-text-attachment-100kb-inline`: Chat text files over 100 KB are not shown to the model inline | model | reference |
 | files | `long-line-clamps`: read_file cuts lines longer than 2,000 characters | model | live, verified |
-| files | `office-extraction-silent-loss`: .xlsx and .docx files are read partially, with no note | nobody | live, fixture-only |
+| files | `office-extraction-silent-loss`: .xlsx and .docx files are read partially, with no note | nobody | live, verified |
 | files | `read-dedup-stub-after-spill`: Re-reading a file can return an 'unchanged' stub with no content | model | reference |
 | files | `search-files-silent-page-cap`: search_files returns up to 50 matches and never says there are more | nobody | live, verified |
-| files | `search-skips-hidden-ignored`: Content search skips hidden and gitignored files | model | live, fixture-only |
+| files | `search-skips-hidden-ignored`: Content search skips hidden and gitignored files | model | live, verified |
 | files | `secret-redaction-sentinels`: Secret-like values in tool output are masked | nobody | reference |
 | images | `413-triggers-compaction-not-shrink`: A 413 from a large image compacts history instead of shrinking it | user | reference |
 | images | `aux-vision-substitution`: A helper vision model describes images; the main model sees only text | both | live, verified |
@@ -335,7 +340,7 @@ What a user should know before installing (catalog rule 13):
 | tools | `browser-exec-stderr-head-only`: browser_exec keeps only the first 4,000 chars of stderr | model | live, fixture-only |
 | tools | `browser.idle_session_reap`: Idle browser sessions are closed after 120 seconds | nobody | reference |
 | tools | `execute-code-fd-output-head-only`: execute_code drops OS-level subprocess output past a cap, with no note | nobody | reference |
-| tools | `execute-code-timeout-call-cap`: An execute_code timeout kills the kernel and loses all variables | model | live, fixture-only |
+| tools | `execute-code-timeout-call-cap`: An execute_code timeout kills the kernel and loses all variables | model | live, verified |
 | tools | `hook-context-spill-and-hook-payload-cap`: Plugin hook context over 10,000 chars is spilled to a preview | model | reference |
 | tools | `identical-result-stub`: Repeated identical tool results are replaced by a reference note | model | live, fixture-only |
 | tools | `mcp-result-caps`: MCP results over 50,000 chars are spilled to a preview | model | reference |
@@ -359,7 +364,7 @@ What a user should know before installing (catalog rule 13):
 | web | `web_extract.perplexity_snippets`: The perplexity extract backend returns passages, not whole pages | nobody | reference |
 | web | `web_extract.silent_keyless_rescue`: A failed web_extract is re-served silently by a free keyless backend | nobody | reference |
 | web | `web_extract.thin_content_success`: JS-only or bot-walled pages come back as short 'successful' text | nobody | reference |
-| web | `web_extract.url_cap_5`: web_extract fetches only the first 5 URLs | nobody | live, fixture-only |
+| web | `web_extract.url_cap_5`: web_extract fetches only the first 5 URLs | nobody | live, verified |
 | web | `web_search.caps_and_snippets`: Several web_search backends cap results at 20; the schema allows 100 | nobody | live, fixture-only |
 | web | `web_search.rescue_nested_error`: A failed web_search is re-served by a free keyless backend | model | live, verified |
 

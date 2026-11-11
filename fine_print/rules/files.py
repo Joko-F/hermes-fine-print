@@ -179,7 +179,7 @@ def _spill_read(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
 
 
 @rule("execute-code-timeout-call-cap", driver="tool", tools={"execute_code"},
-      core_tells="model", status="fixture")
+      core_tells="model", status="verified")
 def kernel_timeout(ev: ToolEvent) -> Iterator[Obs]:
     obj = ev.json or {}
     if obj.get("status") != "timeout" or not isinstance(obj.get("error"), str):
@@ -227,7 +227,7 @@ def _identical_stub(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
 
 
 @rule("search-skips-hidden-ignored", driver="tool", tools={"search_files"},
-      core_tells="model", status="fixture")
+      core_tells="model", status="verified")
 def hidden_probe(ev: ToolEvent) -> Iterator[Obs]:
     obj = ev.json or {}
     if (ev.args.get("target") or "content") != "content" or type(obj.get("total_count")) is not int:

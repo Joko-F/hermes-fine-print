@@ -126,7 +126,7 @@ def test_sorted_verified_first_then_by_hits():
     assert order[0] == "terminal-capture-window-and-timeout"
     assert "fixture-only" in page and ">verified<" in page
     verified = [r for r in order if getattr(REGISTRY.get(r), "status", "") == "verified"]
-    assert order[:len(verified)] == verified and len(verified) == 4
+    assert order[:len(verified)] == verified and len(verified) == 5
     assert order[len(verified)] == "web_extract.pdf_from_url"       # fixture rules follow, most hits first
     counts = [len(result["rules"][r]) for r in verified]
     assert counts == sorted(counts, reverse=True)
