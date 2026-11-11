@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from .cards import decide, mark_surfaced
-from .engine import Call, CommitRow, Obs, Registry, ToolEvent, failed_targets, fetched_nothing
+from .engine import Call, CommitRow, Obs, Registry, ToolEvent, fetched_nothing, fetched_urls
 from .signals import decode_stored, json_object, short_hash, strip_untrusted
 
 MAX_SECONDS = 25.0
@@ -132,7 +132,8 @@ class _Index:
                 idxs, items, flats = self.by_tool.setdefault(call.tool, ([], [], []))
                 idxs.append(i)
                 items.append(call)
-                flats.append(call.flat_args())
+                # what Recover's file-name test looks at: the string arguments themselves
+                flats.append("\x00".join(v for v in call.args.values() if isinstance(v, str)))
 
     def later(self, recover: Any, after: int) -> list[Call]:
         """Calls after index ``after`` that ``recover`` could be satisfied by (a superset is fine:
@@ -210,12 +211,14 @@ class _Session:
         inner = strip_untrusted(content)
         obj = json_object(inner)
         # The live hook gets core's status; a stored row does not carry it. Core calls a result an error
-        # when it has a top-level "error" or, for terminal, a non-zero exit code (model_tools.py:669-684,
-        # agent/display.py:1046-1054): the same test here. A failed row is still read by the rules.
-        failed = obj is not None and bool(obj.get("error") or (tool == "terminal" and obj.get("exit_code") not in (None, 0)))
-        targets = failed_targets(tool, obj)
-        if failed or targets:
-            self.calls[index] = dataclasses.replace(call, ok=not failed, failed=targets)
+        # when it has a top-level "error", ``success: false`` with a message or, for terminal, a non-zero
+        # exit code (model_tools.py:669-684, agent/display.py:1046-1063): the same test here, as far as
+        # a stored row shows it. A failed row is still read by the rules.
+        failed = obj is not None and bool(obj.get("error") or (obj.get("success") is False and obj.get("message"))
+                                          or (tool == "terminal" and obj.get("exit_code") not in (None, 0)))
+        fetched = fetched_urls(tool, obj)
+        if failed or fetched is not None:
+            self.calls[index] = dataclasses.replace(call, ok=not failed, fetched=fetched)
         found = self.registry.run("tool", tool, ToolEvent(tool, call.args, inner, self.sid, "", tcid, replay=True))
         if not failed and fetched_nothing(tool, obj, found):       # as in the live path (core.tool_result)
             self.calls[index] = dataclasses.replace(self.calls[index], ok=False)

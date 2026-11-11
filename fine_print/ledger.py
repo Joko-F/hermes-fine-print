@@ -134,8 +134,8 @@ class Ledger:
             if old is not None:              # move the row, or fold it into one that already has the new id
                 db.execute("INSERT OR IGNORE INTO sessions(id, first_seen, parent_id, model, platform) "
                            "VALUES (?,?,?,?,?)", (new_id, *old[:4]))
-                db.execute("UPDATE sessions SET note_chars = note_chars + ?, notes = notes + ? WHERE id = ?",
-                           (old[4], old[5], new_id))
+                db.execute("UPDATE sessions SET note_chars = note_chars + ?, notes = notes + ?, "
+                           "first_seen = MIN(first_seen, ?) WHERE id = ?", (old[4], old[5], old[0], new_id))
                 db.execute("DELETE FROM sessions WHERE id = ?", (old_id,))
             db.execute("UPDATE sessions SET parent_id = ? WHERE parent_id = ?", (new_id, old_id))   # its subagents
             db.commit()

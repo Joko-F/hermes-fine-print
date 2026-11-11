@@ -16,6 +16,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
+from urllib.parse import quote, urlsplit
 
 from . import constants as C
 from .signals import basename, json_object
@@ -33,7 +34,7 @@ class Call:
     args: dict
     tool_call_id: str = ""
     ok: bool = True                  # False when the call returned an error: it recovers nothing
-    failed: frozenset = frozenset()  # targets of an otherwise successful call that came back as errors (URLs)
+    fetched: Optional[frozenset] = None   # web_extract: the URLs that came back without an error; None = not known
 
     def flat_args(self) -> str:
         try:
@@ -133,25 +134,51 @@ def _names_file(call: Call, name: str) -> bool:
     whole file name in it (``out.log`` does not match ``out.log.bak`` or ``my-out.log``)."""
     if call.tool in ("read_file", "search_files"):
         return basename(str(call.args.get("path") or "")) == name
-    return re.search(f"(?<!{_NAME_EDGE}){re.escape(name)}(?!{_NAME_EDGE})", call.flat_args()) is not None
+    pattern = re.compile(f"(?<!{_NAME_EDGE}){re.escape(name)}(?!{_NAME_EDGE})")
+    return any(pattern.search(v) for v in call.args.values() if isinstance(v, str))   # the command or the code
 
 
-def _fetched_urls(call: Call) -> set:
-    """The URLs a web_extract call really got back: the first five it was given, minus the ones
-    whose result entry is an error."""
+_URL_SAFE = "%/:?#[]@!$&'()*+,;=~-._"
+
+
+def canon_url(value: Any) -> str:
+    """A URL in the form core sends and returns it (tools/url_safety.py:38-75): trimmed, the host
+    IDNA-encoded, other non-ASCII text percent-encoded, existing escapes kept. The model's own
+    spelling and the ``url`` of a result entry must compare equal."""
+    if isinstance(value, dict):
+        value = value.get("url") or value.get("href")
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    try:
+        host = urlsplit(raw).hostname
+        if host and not host.isascii():
+            at = raw.lower().find(host)
+            if at >= 0:
+                raw = raw[:at] + host.encode("idna").decode("ascii") + raw[at + len(host):]
+    except (ValueError, UnicodeError):
+        pass
+    return quote(raw, safe=_URL_SAFE)
+
+
+def fetched_urls(tool: str, obj: Optional[dict]) -> Optional[frozenset]:
+    """The URLs of a web_extract result whose own entry carries no error; None when the result has
+    no entries to read (the call's arguments are then all there is to go by)."""
+    rows = obj.get("results") if tool == "web_extract" and obj is not None else None
+    if not isinstance(rows, list):
+        return None
+    return frozenset(canon_url(r.get("url")) for r in rows
+                     if isinstance(r, dict) and r.get("url") and not r.get("error"))
+
+
+def _fetched_urls(call: Call) -> frozenset:
+    """What a web_extract call really got back: its result's good entries, else the first five
+    URLs it was given (later ones are never passed on)."""
+    if call.fetched is not None:
+        return call.fetched
     urls = call.args.get("urls")
     urls = urls[: C.WEB_EXTRACT_URL_CAP] if isinstance(urls, list) else ()
-    return {str(u) for u in urls} - call.failed
-
-
-def failed_targets(tool: str, obj: Optional[dict]) -> frozenset:
-    """URLs of a web_extract result whose own entry carries an error (the call as a whole is not an error)."""
-    if tool != "web_extract" or obj is None:
-        return frozenset()
-    rows = obj.get("results")
-    if not isinstance(rows, list):
-        return frozenset()
-    return frozenset(str(r.get("url")) for r in rows if isinstance(r, dict) and r.get("error") and r.get("url"))
+    return frozenset(canon_url(u) for u in urls) - {""}
 
 
 # Tools that can actually read a saved file back.
@@ -186,12 +213,12 @@ class Recover:
 
     @staticmethod
     def refetch(urls: Iterable[str]) -> "Recover":
-        return Recover("refetch", "", tuple(str(u) for u in urls))
+        return Recover("refetch", "", tuple(canon_url(u) for u in urls))
 
     @staticmethod
     def refetch_bigger(url: str, budget: int) -> "Recover":
         """The same URL fetched again with a char_limit clearly above the budget that cut it."""
-        return Recover("refetch_bigger", str(url), (int(budget),))
+        return Recover("refetch_bigger", canon_url(url), (int(budget),))
 
     def satisfied(self, later: list[Call]) -> bool:
         later = [c for c in later if c.ok]
@@ -336,7 +363,7 @@ def rule(rule_id: str, *, driver: str, tools: Iterable[str] = (), prefixes: Iter
 # ── per-turn buffer ────────────────────────────────────────────────────────────────────────────────
 class TurnState:
     __slots__ = ("session_id", "turn_id", "calls", "obs", "raw_len", "notes", "note_chars", "t0", "touched",
-                 "closed")
+                 "closed", "merged_into")
 
     def __init__(self, session_id: str, turn_id: str, now: float) -> None:
         self.session_id, self.turn_id = session_id, turn_id
@@ -347,6 +374,7 @@ class TurnState:
         self.note_chars = 0
         self.t0 = self.touched = now
         self.closed = False              # set when the turn is popped; a late hook must not append
+        self.merged_into: Optional["TurnState"] = None   # set when a rotation joined this half to another state
 
 
 class TurnBuffer:
@@ -407,7 +435,7 @@ class TurnBuffer:
                     target.raw_len.update(st.raw_len)
                     target.notes += st.notes
                     target.note_chars += st.note_chars
-                    st.closed = True       # a hook still holding the old part writes to the ledger itself
+                    st.merged_into = target    # a hook still holding the old half continues on the joined turn
 
     def pop_stale(self) -> list[TurnState]:
         """Turns nobody closed (background forks fire tool hooks but no end-of-turn hook)."""

@@ -193,13 +193,13 @@ def test_follow_up_must_address_the_saved_file_itself():
 
 
 def test_a_refetch_counts_only_for_urls_that_came_back():
-    from fine_print.engine import Call, Recover, failed_targets
+    from fine_print.engine import Call, Recover, fetched_urls
     url = "https://example.com/a"
     bigger = Recover.refetch_bigger(url, 15_000)
     result = {"results": [{"url": url, "content": "", "error": "Extract timed out after 120s via tavily"}]}
-    failed = failed_targets("web_extract", result)
-    assert failed == frozenset({url})
-    assert not bigger.satisfied([Call("web_extract", {"urls": [url], "char_limit": 60_000}, failed=failed)])
+    fetched = fetched_urls("web_extract", result)
+    assert fetched == frozenset() and fetched_urls("terminal", result) is None
+    assert not bigger.satisfied([Call("web_extract", {"urls": [url], "char_limit": 60_000}, fetched=fetched)])
     assert bigger.satisfied([Call("web_extract", {"urls": [url], "char_limit": 60_000})])
     six = [f"https://example.com/{i}" for i in range(6)]
     assert not Recover.refetch([six[5]]).satisfied([Call("web_extract", {"urls": six})])      # only five are passed on
@@ -241,16 +241,79 @@ def test_rotation_moves_note_accounting_and_subagent_rows(fp, host):
     assert fp.ledger._read("SELECT parent_id FROM sessions WHERE id = 'kid'") == [("new",)]
 
 
-def test_a_hook_holding_the_old_half_of_a_merged_turn_is_not_lost(fp, host):
+class RotatingRegistry:
+    """Runs the real rules, and lets a compaction rotate the session id while the first hook is inside them."""
+
+    def __init__(self, fp, real, rotate):
+        self.fp, self.real, self.rotate, self.failed = fp, real, rotate, real.failed
+
+    def run(self, driver, tool, ev):
+        found = self.real.run(driver, tool, ev)
+        if self.rotate:
+            rotate, self.rotate = self.rotate, None
+            rotate()
+        return found
+
+    def get(self, rule_id):
+        return self.real.get(rule_id)
+
+
+def test_a_rotation_while_a_hook_is_inside_the_rules_loses_nothing(fp, host):
+    """The hook holds the old half of the turn; hooks under the new id already made the other half.
+    After the join the first hook's call and observation belong to the joined turn, at the right place."""
+    from test_engine import saved_name, web_result
+    url = "https://example.com/a"
+    read = json.dumps({"content": "1|the middle", "total_lines": 9})
+    run_tool(fp, "read_file", {"path": "/c/other.txt"}, read, session="new", n=5)      # the half under the new id
+
+    def rotate():
+        fp.compaction(session_id="new", old_session_id="old", kind="prune_tool_results", reason="proactive_prune",
+                      messages_removed=0)
+    fp.registry = RotatingRegistry(fp, fp.registry, rotate)
+    run_tool(fp, "web_extract", {"urls": [url]}, web_result(), session="old", n=1)       # rotation lands in here
+    st = fp.buffer.get("new", "t1")
+    assert [c.tool for c in st.calls] == ["web_extract", "read_file"]                    # old half first
+    cut = [o for o in st.obs if o.rule_id == "web_extract.head_tail_truncation"][0]
+    assert st.calls[cut.call_index].tool == "web_extract"
+    run_tool(fp, "read_file", {"path": "/c/" + saved_name(url)}, read, session="old", n=6)   # a late hook, old id
+    assert fp.turn_end(session_id="new", turn_id="t1", platform="cli") is None           # followed up: no card
+    events = {e["rule_id"]: e for e in fp.ledger.session_events("new")}
+    assert events["web_extract.head_tail_truncation"]["recovered"] and fp.ledger.session_events("old") == []
+
+
+def test_a_turn_closed_just_after_a_rotation_is_written_under_the_new_id(fp, host):
     from test_engine import web_result
-    old_state = fp.buffer.get("old", "t1")
-    fp.buffer.get("new", "t1")                      # hooks already arrived under the new id
-    fp.buffer.rename_session("old", "new")
-    assert old_state.closed and old_state.session_id == "new"
-    fp.buffer._turns[("stale", "t1")] = old_state   # the slow hook still writes through its old reference
-    fp.buffer._renamed["old"] = "stale"
     run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), session="old")
+    st = fp.buffer.pop("old", "t1")                                   # turn_end has popped it ...
+    fp.compaction(session_id="new", old_session_id="old", kind="prune_tool_results", reason="x", messages_removed=0)
+    fp._close(st, None, "cli", "m", post=False)                        # ... and closes it after the rotation
     assert [e["rule_id"] for e in fp.ledger.session_events("new")] == ["web_extract.head_tail_truncation"]
+    assert fp.ledger.session_events("old") == [] and not fp.ledger.session_info("old")
+
+
+def test_urls_compare_the_way_core_sends_them():
+    from fine_print.engine import Call, Recover, canon_url, fetched_urls
+    typed, sent = "  https://example.com/Köln ", "https://example.com/K%C3%B6ln"
+    assert canon_url(typed) == sent == canon_url(sent) and canon_url({"url": typed}) == sent
+    assert canon_url("https://bücher.example/a") == "https://xn--bcher-kva.example/a"
+    bigger = Recover.refetch_bigger(sent, 15_000)                      # the key comes from the result's url
+    ok = fetched_urls("web_extract", {"results": [{"url": sent, "content": "x", "error": None}]})
+    assert bigger.satisfied([Call("web_extract", {"urls": [typed], "char_limit": 60_000}, fetched=ok)])
+    assert bigger.satisfied([Call("web_extract", {"urls": [{"url": typed}], "char_limit": 60_000})])
+    bad = fetched_urls("web_extract", {"results": [{"url": sent, "content": "", "error": "Blocked"}]})
+    assert not Recover.refetch([typed]).satisfied([Call("web_extract", {"urls": [typed]}, fetched=bad)])
+    assert Recover.refetch([typed]).satisfied([Call("web_extract", {"urls": [typed]}, fetched=ok)])
+
+
+def test_a_file_name_is_found_in_a_multi_line_command_and_in_replay():
+    from fine_print.engine import Call, Recover
+    from fine_print.report import _Index
+    names = Recover.names("out.log")
+    assert names.satisfied([Call("terminal", {"command": "cd /c\nout.log"})])
+    assert names.satisfied([Call("execute_code", {"code": "import json\nprint(open('/c/out.log').read())"})])
+    quoted = Recover.names('a"b.log')
+    calls = [Call("read_file", {"path": '/tmp/a"b.log'})]
+    assert quoted.satisfied(calls) and quoted.satisfied(_Index(calls).later(quoted, -1))
 
 
 # ── HIGH 6: one key for the notes of one result ───────────────────────────────────────────────────

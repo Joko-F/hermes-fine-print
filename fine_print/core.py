@@ -17,7 +17,7 @@ from . import constants as C
 from . import rules  # noqa: F401  (registers the detectors)
 from .cards import decide, mark_surfaced, render
 from .engine import (REGISTRY, ApiEvent, Call, CommitRow, CompactionEvent, Obs, Registry, ToolEvent, TurnBuffer,
-                     TurnEvent, TurnState, annotate, failed_targets, fetched_nothing)
+                     TurnEvent, TurnState, annotate, fetched_nothing, fetched_urls)
 from .ledger import Ledger
 
 logger = logging.getLogger("fine_print")
@@ -89,26 +89,37 @@ class FinePrint:
                        str(tool_call_id or ""), str(status or "ok"))
         failed = ev.is_error             # core's status, e.g. a non-zero exit code or a top-level error
         st = self.buffer.get(ev.session_id, ev.turn_id)
-        targets = failed_targets(tool, ev.json) if tool == "web_extract" else frozenset()
+        call = Call(tool, args, ev.tool_call_id, ok=not failed,
+                    fetched=fetched_urls(tool, ev.json) if tool == "web_extract" else None)
+        raw_len = len(ev.text) if ev.text is not None and ev.tool_call_id else None
         with self.buffer.lock():
-            index = len(st.calls)
-            st.calls.append(Call(tool, args, ev.tool_call_id, ok=not failed, failed=targets))
-            if ev.text is not None and ev.tool_call_id:
-                st.raw_len[ev.tool_call_id] = len(ev.text)
+            st.calls.append(call)
+            if raw_len is not None:
+                st.raw_len[ev.tool_call_id] = raw_len
         # A failed call is no follow-up and is never annotated, but it is still read: a failed build
         # whose output was cut, a timeout and a refusal are results with an error status.
         found = self.registry.run("tool", tool, ev)
-        if not failed and fetched_nothing(tool, ev.json, found):      # a read that got nothing is no follow-up
-            with self.buffer.lock():
-                st.calls[index] = dataclasses.replace(st.calls[index], ok=False)
+        nothing = not failed and fetched_nothing(tool, ev.json, found)     # a read that got nothing is no follow-up
+        with self.buffer.lock():
+            # The rules ran without the lock. A compaction may have rotated the session meanwhile and
+            # joined this turn's halves: follow the turn, and find the call by identity, not by position.
+            while st.merged_into is not None:
+                st = st.merged_into
+            index = next((i for i in range(len(st.calls) - 1, -1, -1) if st.calls[i] is call), -1)
+            if index < 0:                    # it was appended to the half that had already been joined
+                st.calls.append(call)
+                index = len(st.calls) - 1
+                if raw_len is not None:
+                    st.raw_len[ev.tool_call_id] = raw_len
+            if nothing:
+                st.calls[index] = dataclasses.replace(call, ok=False)
+            for obs in found:
+                obs.call_index, obs.tool_call_id = index, ev.tool_call_id
+            late = st.closed             # the turn was closed while this hook ran (a slow or abandoned call)
+            if found and not late:
+                st.obs.extend(found)
         if not found:
             return None
-        for obs in found:
-            obs.call_index, obs.tool_call_id = index, ev.tool_call_id
-        with self.buffer.lock():
-            late = st.closed             # the turn was closed while this hook ran (a slow or abandoned call)
-            if not late:
-                st.obs.extend(found)
         if late:
             self.ledger.record(st.session_id, st.turn_id, found)
             return None
@@ -233,6 +244,7 @@ class FinePrint:
                 _put(self.pending, session_id, waiting + found)
 
     def _close(self, st: TurnState, history: Any, platform: str, model: str, post: bool) -> Optional[str]:
+        st.session_id = self.buffer.canonical(st.session_id)    # the id may have rotated after the turn was popped
         observations = list(st.obs)
         observations.extend(self._commit_rules(st, history))
         for obs in observations:
@@ -245,7 +257,8 @@ class FinePrint:
             if parent:        # a subagent's notice would land in the parent chat: fold it into the parent's card
                 open_hits = sum(1 for o in observations if not o.recovered)
                 if open_hits:
-                    _put(self.child_hits, parent, self.child_hits.get(parent, 0) + open_hits)
+                    with self._side_lock:
+                        _put(self.child_hits, parent, self.child_hits.get(parent, 0) + open_hits)
             elif post:
                 card, groups, child_hits = self._card(st.session_id, observations, platform)
                 if card and self.host.post(card):        # only a delivered card counts as shown
@@ -253,7 +266,8 @@ class FinePrint:
                     self.stats["cards"] += 1
                 elif card:
                     if child_hits:
-                        self.child_hits[st.session_id] = self.child_hits.get(st.session_id, 0) + child_hits
+                        with self._side_lock:
+                            _put(self.child_hits, st.session_id, self.child_hits.get(st.session_id, 0) + child_hits)
                     card = None
             self.ledger.record(st.session_id, st.turn_id, observations)
         if st.note_chars:
@@ -295,7 +309,8 @@ class FinePrint:
             surfaced_causes=self.ledger.surfaced_causes(session_id),
             surfaced_counts=self.ledger.surfaced_counts(session_id),
         )
-        child_hits = self.child_hits.pop(session_id, 0) if groups else 0
+        with self._side_lock:
+            child_hits = self.child_hits.pop(session_id, 0) if groups else 0
         text = render(groups, more, core_tells_of=lambda rid: getattr(self.registry.get(rid), "core_tells", ""),
                       cfg=self.cfg_for(session_id), child_hits=child_hits)
         return text, groups, child_hits
