@@ -9,8 +9,6 @@ Past a provider limit, the oldest images an agent loaded leave the request eight
 Each of these is a sensible limit, and each is silent for the user. Fine Print is a Hermes plugin that
 makes them visible the moment they shape an answer.
 
-![A Fine Print card in the Hermes TUI](docs/card.png)
-
 ![An agent loads 22 images, the request carries 14: the model says what it could not see, the card says why](docs/demo.gif)
 
 ## What the author's own history says
