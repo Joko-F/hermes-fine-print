@@ -23,30 +23,53 @@ from urllib.parse import urlsplit
 # To read the omitted middle: read_file path="/path" offset=115 limit=200  (...)
 # ─────────────────────────────
 _WEB_FOOTER = re.compile(
-    r"─{4,} \[TRUNCATED\] ─{4,}\n"
+    r"\n\n─{8} \[TRUNCATED\] ─{8}\n"
     r"Showing ([\d,]+) chars \(head\) \+ ([\d,]+) chars \(tail\) of ([\d,]+) total clean characters\.\n"
-    r"(?:Full text saved to: ([^\n]+)\n|Full text could not be stored;[^\n]*\n)?"
-    r"(?:To read the omitted middle: read_file path=\"[^\"\n]+\" offset=(\d+) limit=(\d+)[^\n]*\n)?"
-    r"─{4,}\s*\Z"
+    r"(?:Full text saved to: ([^\n]+)\n"
+    r"To read the omitted middle: read_file path=\"([^\"\n]+)\" offset=(\d+) limit=200  "
+    r"\(the file is the complete page; raise/lower offset to page through it\)\.\n"
+    r"|Full text could not be stored; re-run web_extract on a more specific URL or open it in the browser "
+    r"for the complete page\.\n)"
+    r"─{29}\s*\Z"
 )
+_WEB_MIDDLE = "\n\n[... middle omitted — see footer ...]\n\n"
+_WEB_COPY_NAME = re.compile(r"(?:\A|[/\\])[A-Za-z0-9._-]+-([0-9a-f]{10})\.md\Z")
 
 
 def _int(text: str) -> int:
     return int(text.replace(",", ""))
 
 
-def parse_web_footer(content: Any) -> Optional[dict]:
-    """The head+tail footer at the very end of one page's ``content``; None when the page was not cut."""
-    if not isinstance(content, str) or len(content) < 80:
+def parse_web_footer(content: Any, url: str = "") -> Optional[dict]:
+    """The head+tail footer at the very end of one page's ``content``; None when the page was not cut.
+
+    The footer is text inside the page's own content, so a page could print one itself. Everything a
+    tool result allows is therefore checked: the complete v0.23.0 layout, the omission marker sitting
+    exactly between a head and a tail of the stated lengths, the saved copy named twice the same way,
+    and its file name carrying the first ten hex digits of sha256(url) as core builds it
+    (tools/web_tools_truncate.py:69). A page that reproduces all of that for its own URL would still
+    pass: there is no out-of-band truncation flag in v0.23.0, and the model reads the same footer."""
+    if not isinstance(content, str) or len(content) < 120:
         return None
-    m = _WEB_FOOTER.search(content[-1200:])
+    window = content[-2500:]
+    m = _WEB_FOOTER.search(window)
     if not m:
         return None
     head, tail, total = _int(m.group(1)), _int(m.group(2)), _int(m.group(3))
     if total <= 0 or head + tail > total:
         return None
-    return {"head": head, "tail": tail, "total": total, "path": (m.group(4) or "").strip(),
-            "offset": int(m.group(5)) if m.group(5) else None}
+    body_len = len(content) - (len(window) - m.start())
+    if body_len != head + len(_WEB_MIDDLE) + tail or content[head: head + len(_WEB_MIDDLE)] != _WEB_MIDDLE:
+        return None
+    path = (m.group(4) or "").strip()
+    if path:
+        name = _WEB_COPY_NAME.search(path)
+        if not name or path != m.group(5):
+            return None
+        if url and name.group(1) != hashlib.sha256(url.encode("utf-8", "replace")).hexdigest()[:10]:
+            return None
+    return {"head": head, "tail": tail, "total": total, "path": path,
+            "offset": int(m.group(6)) if m.group(6) else None}
 
 
 # ── JSON head ──────────────────────────────────────────────────────────────────────────────────────

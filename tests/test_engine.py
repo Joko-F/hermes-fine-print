@@ -1,20 +1,35 @@
 """End-to-end over the engine with a fake host: tool results in, card / note / ledger out."""
 
+import hashlib
 import json
+from urllib.parse import urlsplit
 
 from fine_print.engine import annotate
 
-WEB_FOOTER = (
-    "\n\n──────── [TRUNCATED] ────────\n"
-    "Showing 11,250 chars (head) + 3,733 chars (tail) of 24,116 total clean characters.\n"
-    "Full text saved to: /home/u/.hermes/cache/web/example.com-7cac558ea3.md\n"
-    'To read the omitted middle: read_file path="/home/u/.hermes/cache/web/example.com-7cac558ea3.md" '
-    "offset=115 limit=200  (the file is the complete page; raise/lower offset to page through it).\n"
-    "─────────────────────────────"
-)
+WEB_MIDDLE = "\n\n[... middle omitted — see footer ...]\n\n"
 
 
-def web_result(content="lorem ipsum " * 50 + WEB_FOOTER, url="https://example.com/a"):
+def saved_name(url="https://example.com/a"):
+    """The file name core gives the saved copy of a page: host slug + sha256(url)[:10]."""
+    return f"{urlsplit(url).hostname}-{hashlib.sha256(url.encode()).hexdigest()[:10]}.md"
+
+
+def web_page(url="https://example.com/a", head=11_250, tail=3_733, total=24_116, saved=True):
+    """One cut page laid out as tools/web_tools_truncate.py:86-128 does: head, omission marker, tail, footer."""
+    path = f"/home/u/.hermes/cache/web/{saved_name(url)}"
+    store = (f"Full text saved to: {path}\n"
+             f'To read the omitted middle: read_file path="{path}" '
+             "offset=115 limit=200  (the file is the complete page; raise/lower offset to page through it).\n"
+             if saved else
+             "Full text could not be stored; re-run web_extract on a more specific URL or open it in the browser "
+             "for the complete page.\n")
+    return ("h" * head + WEB_MIDDLE + "t" * tail + "\n\n──────── [TRUNCATED] ────────\n"
+            f"Showing {head:,} chars (head) + {tail:,} chars (tail) of {total:,} total clean characters.\n"
+            + store + "─" * 29)
+
+
+def web_result(content=None, url="https://example.com/a", **page):
+    content = web_page(url, **page) if content is None else content
     return json.dumps({"results": [{"url": url, "title": "t", "content": content, "error": None}]}, indent=2,
                       ensure_ascii=False)
 
@@ -36,7 +51,7 @@ def test_web_cut_raises_card_when_not_recovered(fp, host):
 
 def test_web_cut_recovered_by_reading_saved_copy(fp, host):
     run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), n=1)
-    run_tool(fp, "read_file", {"path": "/home/u/.hermes/cache/web/example.com-7cac558ea3.md", "offset": 115},
+    run_tool(fp, "read_file", {"path": "/home/u/.hermes/cache/web/example.com-2dce0a4c50.md", "offset": 115},
              json.dumps({"content": "x"}), n=2)
     assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli") is None
     assert host.posted == []
@@ -44,7 +59,7 @@ def test_web_cut_recovered_by_reading_saved_copy(fp, host):
 
 
 def test_read_before_the_cut_is_not_recovery(fp, host):
-    run_tool(fp, "read_file", {"path": "/x/example.com-7cac558ea3.md"}, json.dumps({"content": "x"}), n=1)
+    run_tool(fp, "read_file", {"path": "/x/example.com-2dce0a4c50.md"}, json.dumps({"content": "x"}), n=1)
     run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), n=2)
     assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli") is not None
 
@@ -182,7 +197,7 @@ def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host)
     run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), session="old", turn="t1")
     fp.compaction(session_id="new", old_session_id="old", kind="summarize", reason="post_tool",
                   before_tokens=100_000, after_tokens=30_000, messages_removed=12)
-    run_tool(fp, "read_file", {"path": "/x/example.com-7cac558ea3.md"}, json.dumps({"content": "x"}), n=2,
+    run_tool(fp, "read_file", {"path": "/x/example.com-2dce0a4c50.md"}, json.dumps({"content": "x"}), n=2,
              session="new", turn="t1")
     card = fp.turn_end(session_id="new", turn_id="t1", platform="cli")
     assert "context compaction (post_tool)" in card and "web_extract" not in card   # the page was followed up
@@ -192,7 +207,7 @@ def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host)
 
 
 def test_failed_summary_before_compaction_is_reported_as_likely_skeleton(fp, host):
-    fp.aux_call(aux_task="compression", error="timeout", error_type="TimeoutError")
+    fp.aux_call(aux_task="compression", error="timeout", error_type="TimeoutError", session_id="s1")
     fp.compaction(session_id="s1", kind="summarize", reason="manual", before_tokens=90_000, after_tokens=9_000,
                   messages_removed=40)
     fp.turn_end(session_id="s1", turn_id="t1", platform="cli")

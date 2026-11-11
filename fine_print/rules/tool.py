@@ -35,10 +35,10 @@ def web_cut(ev: ToolEvent) -> Iterator[Obs]:
     for item in results:
         if not isinstance(item, dict):
             continue
-        foot = parse_web_footer(item.get("content"))
+        url = str(item.get("url") or "")
+        foot = parse_web_footer(item.get("content"), url)
         if not foot:
             continue
-        url = str(item.get("url") or "")
         shown, total = foot["head"] + foot["tail"], foot["total"]
         saved = basename(foot["path"]) if foot["path"] else ""
         recover = ()
@@ -57,7 +57,8 @@ def web_cut(ev: ToolEvent) -> Iterator[Obs]:
 
 @rule("web_extract.url_cap_5", driver="tool", tools={"web_extract"}, core_tells="nobody", status="fixture")
 def web_url_cap(ev: ToolEvent) -> Iterator[Obs]:
-    """The handler slices ``urls[:5]``: later URLs are never fetched and get no error entry."""
+    """The handler slices ``urls[:5]``: later URLs are never passed on and get no result entry.
+    Whether the first five were fetched is a separate matter (each has its own entry)."""
     urls = ev.args.get("urls")
     if not isinstance(urls, list) or len(urls) <= C.WEB_EXTRACT_URL_CAP:
         return
@@ -66,9 +67,9 @@ def web_url_cap(ev: ToolEvent) -> Iterator[Obs]:
     yield Obs("web_extract.url_cap_5",
               numbers={"asked": n, "fetched": C.WEB_EXTRACT_URL_CAP, "dropped": len(dropped)},
               subject=f"{n} URLs", cause="|".join(dropped), recover=(Recover.refetch(dropped),),
-              note=(f"web_extract fetched only the first {C.WEB_EXTRACT_URL_CAP} of {n} URLs (v0.23.0 cap); "
-                    f"URLs {C.WEB_EXTRACT_URL_CAP + 1}-{n} were not fetched and have no result entry. "
-                    "A second call can fetch them."))
+              note=(f"web_extract takes only the first {C.WEB_EXTRACT_URL_CAP} URLs of a call (v0.23.0 cap); "
+                    f"URLs {C.WEB_EXTRACT_URL_CAP + 1}-{n} of these {n} were not requested and have no result "
+                    "entry. A second call can request them."))
 
 
 # ── web_search ─────────────────────────────────────────────────────────────────────────────────────

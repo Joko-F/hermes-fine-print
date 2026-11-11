@@ -13,7 +13,7 @@ import threading
 import time
 from typing import Any, Callable, Iterable, Optional
 
-from .signals import short_hash
+from .signals import safe_label, short_hash
 
 _TEXT_OK = re.compile(r"[^A-Za-z0-9 _.:+>/-]")
 
@@ -31,9 +31,17 @@ def clean_numbers(numbers: Any) -> dict:
     return out
 
 
+_PATHISH = re.compile(r"\A(?:[/~]|[A-Za-z]:[\\/]|file:|\\\\)")
+
+
 def clean_subject(subject: Any) -> str:
-    """A label is a host, a file basename or a tool name: never a query string or a path."""
-    text = str(subject or "").split("?", 1)[0].split("#", 1)[0]
+    """A label is a host, a file basename, a tool or a model name: never a query string or a path.
+    Anything that looks like a path (a local model file, say) is kept as its last segment only;
+    a ``vendor/model`` identifier is left as it is."""
+    text = str(subject or "")
+    if _PATHISH.match(text) or "\\" in text:
+        text = safe_label(text)
+    text = text.split("?", 1)[0].split("#", 1)[0]
     return text.replace("\n", " ")[:80]
 
 SCHEMA = """
@@ -93,9 +101,11 @@ class Ledger:
     def touch_session(self, session_id: str, *, parent_id: str = "", model: str = "", platform: str = "") -> None:
         if not session_id or session_id in self._seen:
             return
-        self._seen.add(session_id)
+        if len(self._seen) > 4096:           # only a cache in front of INSERT OR IGNORE
+            self._seen.clear()
         self._write("INSERT OR IGNORE INTO sessions(id, first_seen, parent_id, model, platform) VALUES (?,?,?,?,?)",
-                    [(session_id, self._now(), parent_id, model[:120], platform[:40])])
+                    [(session_id, self._now(), parent_id, clean_subject(model), platform[:40])])
+        self._seen.add(session_id)           # only after the row exists
 
     def record(self, session_id: str, turn_id: str, observations: Iterable[Any]) -> None:
         """One transaction per turn; ``observations`` are engine ``Obs`` objects."""
@@ -114,10 +124,22 @@ class Ledger:
 
     def rename_session(self, old_id: str, new_id: str) -> None:
         """Compaction rotates the session id; keep one history."""
-        if old_id and new_id and old_id != new_id:
-            self._write("UPDATE events SET session_id = ? WHERE session_id = ?", [(new_id, old_id)])
-            self._write("UPDATE OR IGNORE sessions SET id = ? WHERE id = ?", [(new_id, old_id)])
-            self._seen.add(new_id)
+        if not old_id or not new_id or old_id == new_id:
+            return
+        with self._lock:
+            db = self._db()
+            db.execute("UPDATE events SET session_id = ? WHERE session_id = ?", (new_id, old_id))
+            old = db.execute("SELECT first_seen, parent_id, model, platform, note_chars, notes FROM sessions "
+                             "WHERE id = ?", (old_id,)).fetchone()
+            if old is not None:              # move the row, or fold it into one that already has the new id
+                db.execute("INSERT OR IGNORE INTO sessions(id, first_seen, parent_id, model, platform) "
+                           "VALUES (?,?,?,?,?)", (new_id, *old[:4]))
+                db.execute("UPDATE sessions SET note_chars = note_chars + ?, notes = notes + ? WHERE id = ?",
+                           (old[4], old[5], new_id))
+                db.execute("DELETE FROM sessions WHERE id = ?", (old_id,))
+            db.execute("UPDATE sessions SET parent_id = ? WHERE parent_id = ?", (new_id, old_id))   # its subagents
+            db.commit()
+        self._seen.discard(old_id)           # the new id is marked only by touch_session, once its row exists
 
     def purge(self, session_ids: Iterable[str]) -> None:
         ids = [(s,) for s in session_ids if s]

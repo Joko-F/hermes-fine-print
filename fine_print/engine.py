@@ -2,8 +2,8 @@
 
     drivers (hooks) -> rules -> observations -> turn buffer -> policy -> card | model note | ledger
 
-The same rule functions run live (hook payloads) and over stored history (``report.py``), so a card and
-``/limits report`` cannot disagree. Nothing here imports Hermes: the host (config, posting, storage)
+The same rule functions and the same card policy run live (hook payloads) and over stored history
+(``report.py``). Nothing here imports Hermes: the host (config, posting, storage)
 is injected, which is also what lets the test suite run on plain Python.
 """
 
@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
 
 from . import constants as C
-from .signals import json_object
+from .signals import basename, json_object
 
 logger = logging.getLogger("fine_print")
 
@@ -32,6 +33,7 @@ class Call:
     args: dict
     tool_call_id: str = ""
     ok: bool = True                  # False when the call returned an error: it recovers nothing
+    failed: frozenset = frozenset()  # targets of an otherwise successful call that came back as errors (URLs)
 
     def flat_args(self) -> str:
         try:
@@ -122,6 +124,36 @@ def _num(value: Any, default: int) -> int:
         return default
 
 
+_NAME_EDGE = "[A-Za-z0-9_.~-]"
+
+
+def _names_file(call: Call, name: str) -> bool:
+    """Does this call address the file ``name``? For read_file and search_files the path argument
+    must be that file. A shell or code call cannot be checked that far: the name has to stand as a
+    whole file name in it (``out.log`` does not match ``out.log.bak`` or ``my-out.log``)."""
+    if call.tool in ("read_file", "search_files"):
+        return basename(str(call.args.get("path") or "")) == name
+    return re.search(f"(?<!{_NAME_EDGE}){re.escape(name)}(?!{_NAME_EDGE})", call.flat_args()) is not None
+
+
+def _fetched_urls(call: Call) -> set:
+    """The URLs a web_extract call really got back: the first five it was given, minus the ones
+    whose result entry is an error."""
+    urls = call.args.get("urls")
+    urls = urls[: C.WEB_EXTRACT_URL_CAP] if isinstance(urls, list) else ()
+    return {str(u) for u in urls} - call.failed
+
+
+def failed_targets(tool: str, obj: Optional[dict]) -> frozenset:
+    """URLs of a web_extract result whose own entry carries an error (the call as a whole is not an error)."""
+    if tool != "web_extract" or obj is None:
+        return frozenset()
+    rows = obj.get("results")
+    if not isinstance(rows, list):
+        return frozenset()
+    return frozenset(str(r.get("url")) for r in rows if isinstance(r, dict) and r.get("error") and r.get("url"))
+
+
 # Tools that can actually read a saved file back.
 READERS = ("read_file", "search_files", "terminal", "execute_code")
 
@@ -164,7 +196,7 @@ class Recover:
     def satisfied(self, later: list[Call]) -> bool:
         later = [c for c in later if c.ok]
         if self.kind == "names":
-            return bool(self.key) and any(c.tool in self.extra and self.key in c.flat_args() for c in later)
+            return bool(self.key) and any(c.tool in self.extra and _names_file(c, self.key) for c in later)
         if self.kind == "region":
             return any(c.tool == "vision_analyze" and c.args.get("region")
                        and str(c.args.get("image_url", "")) == self.key for c in later)
@@ -186,11 +218,11 @@ class Recover:
             wanted = set(self.extra)
             for c in later:
                 if c.tool == "web_extract":
-                    wanted -= {str(u) for u in (c.args.get("urls") or ())}
+                    wanted -= _fetched_urls(c)
             return not wanted
         if self.kind == "refetch_bigger":
             for c in later:
-                if c.tool == "web_extract" and self.key in {str(u) for u in (c.args.get("urls") or ())}:
+                if c.tool == "web_extract" and self.key in _fetched_urls(c):
                     if _num(c.args.get("char_limit"), 0) > self.extra[0] + 1000:
                         return True
             return False
@@ -324,11 +356,18 @@ class TurnBuffer:
     def __init__(self, now: Callable[[], float] = time.time, max_turns: int = 64, idle_s: float = 1800.0):
         self._now, self._max, self._idle = now, max_turns, idle_s
         self._turns: dict[tuple, TurnState] = {}
+        self._renamed: dict[str, str] = {}      # rotated session id -> its current id (bounded)
         self._lock = threading.Lock()
 
-    def get(self, session_id: str, turn_id: str) -> TurnState:
-        key = (session_id, turn_id)
+    def canonical(self, session_id: str) -> str:
+        """The current id of a session whose id was rotated by a compaction."""
         with self._lock:
+            return self._renamed.get(session_id, session_id)
+
+    def get(self, session_id: str, turn_id: str) -> TurnState:
+        with self._lock:
+            session_id = self._renamed.get(session_id, session_id)   # a hook that still carries the old id
+            key = (session_id, turn_id)
             st = self._turns.get(key)
             if st is None:
                 st = self._turns[key] = TurnState(session_id, turn_id, self._now())
@@ -337,14 +376,21 @@ class TurnBuffer:
 
     def pop(self, session_id: str, turn_id: str) -> Optional[TurnState]:
         with self._lock:
-            st = self._turns.pop((session_id, turn_id), None)
+            st = self._turns.pop((self._renamed.get(session_id, session_id), turn_id), None)
             if st is not None:
                 st.closed = True
             return st
 
     def rename_session(self, old_id: str, new_id: str) -> None:
-        """Compaction can rotate the session id in the middle of a turn: keep the turn in one piece."""
+        """Compaction can rotate the session id in the middle of a turn: keep the turn in one piece.
+        Hooks that still arrive under the old id are led to the new one."""
         with self._lock:
+            for earlier, current in list(self._renamed.items()):
+                if current == old_id:
+                    self._renamed[earlier] = new_id
+            if len(self._renamed) >= 256:
+                del self._renamed[next(iter(self._renamed))]
+            self._renamed[old_id] = new_id
             for key in [k for k in self._turns if k[0] == old_id]:
                 st = self._turns.pop(key)
                 st.session_id = new_id
@@ -361,6 +407,7 @@ class TurnBuffer:
                     target.raw_len.update(st.raw_len)
                     target.notes += st.notes
                     target.note_chars += st.note_chars
+                    st.closed = True       # a hook still holding the old part writes to the ledger itself
 
     def pop_stale(self) -> list[TurnState]:
         """Turns nobody closed (background forks fire tool hooks but no end-of-turn hook)."""
@@ -380,11 +427,14 @@ class TurnBuffer:
 
 
 # ── model notes ────────────────────────────────────────────────────────────────────────────────────
-def annotate(text: str, note: str, is_object: Optional[bool] = None) -> str:
+def annotate(text: str, note: Any, is_object: Optional[bool] = None) -> str:
     """Put one bracketed line where it survives the 1,500-char spill preview: as the first key of a
     JSON-object result (spliced in, the rest of the bytes untouched), else as a first line.
+    ``note`` is one sentence or a list of them: each is cut to the note budget and they share ONE
+    key (two keys of the same name would leave a JSON reader with only the last).
     ``is_object`` passes on what the caller already parsed, so a large result is not parsed twice."""
-    note = " ".join(note.split())[: C.NOTE_MAX_CHARS]
+    notes = [note] if isinstance(note, str) else list(note)
+    note = " ".join(" ".join(str(n).split())[: C.NOTE_MAX_CHARS] for n in notes if n)
     if is_object is None:
         is_object = json_object(text) is not None
     if is_object and text.startswith("{"):

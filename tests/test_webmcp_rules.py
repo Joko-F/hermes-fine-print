@@ -54,7 +54,7 @@ def test_stored_copy_cap_is_not_recovered_by_reading_the_capped_file():
     _, obs = observation('stored_over_cap')
     assert obs.numbers == {'shown': 2000000, 'total': 2500001}
     assert obs.severity == 'digest'            # the page's own head+tail card carries the advice
-    assert obs.note and len(obs.note) <= 200
+    assert obs.note is None                    # read from text inside the page: the model is told nothing on it
     assert not any(r.satisfied([Call('read_file', {'path': 'huge-page.md'})]) for r in obs.recover)
 
 

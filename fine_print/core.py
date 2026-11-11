@@ -17,7 +17,7 @@ from . import constants as C
 from . import rules  # noqa: F401  (registers the detectors)
 from .cards import decide, mark_surfaced, render
 from .engine import (REGISTRY, ApiEvent, Call, CommitRow, CompactionEvent, Obs, Registry, ToolEvent, TurnBuffer,
-                     TurnEvent, TurnState, annotate, fetched_nothing)
+                     TurnEvent, TurnState, annotate, failed_targets, fetched_nothing)
 from .ledger import Ledger
 
 logger = logging.getLogger("fine_print")
@@ -28,6 +28,16 @@ class Host(Protocol):
     def config(self, dotted: str, default: Any) -> Any: ...        # Hermes config, read-only
     def post(self, text: str) -> bool: ...                         # a user-facing notice in this chat
     def surface(self) -> str: ...                                  # cli | tui | desktop | telegram | ...
+
+
+SIDE_MAP_MAX = 512        # sessions remembered per in-memory side map of a long-lived gateway
+
+
+def _put(mapping: dict, key: str, value: Any) -> None:
+    """Set a key in a side map that must not grow without bound: the oldest entry makes room."""
+    if key not in mapping and len(mapping) >= SIDE_MAP_MAX:
+        del mapping[next(iter(mapping))]
+    mapping[key] = value
 
 
 def _truthy(value: Any, default: bool = True) -> bool:
@@ -47,7 +57,7 @@ class FinePrint:
         self.child_hits: dict[str, int] = {}       # parent session -> unrecovered hits in its subagents
         self.pending: dict[str, list[Obs]] = {}    # session -> observations waiting for a turn to close
         self.context_length: dict[str, int] = {}   # session -> context window in tokens, from responses
-        self._last_summary = (0.0, True)           # (time, ok) of the last compression aux call
+        self._summary_calls: dict[str, tuple] = {} # session -> (time, ok) of its last compression aux call
         self._side_lock = threading.Lock()
         self.stats = {"hooks": 0, "errors": 0, "cards": 0, "notes": 0}
 
@@ -77,17 +87,18 @@ class FinePrint:
         args = args if isinstance(args, dict) else {}
         ev = ToolEvent(tool, args, result, str(session_id or ""), str(turn_id or ""),
                        str(tool_call_id or ""), str(status or "ok"))
-        failed = ev.is_error
+        failed = ev.is_error             # core's status, e.g. a non-zero exit code or a top-level error
         st = self.buffer.get(ev.session_id, ev.turn_id)
+        targets = failed_targets(tool, ev.json) if tool == "web_extract" else frozenset()
         with self.buffer.lock():
             index = len(st.calls)
-            st.calls.append(Call(tool, args, ev.tool_call_id, ok=not failed))
+            st.calls.append(Call(tool, args, ev.tool_call_id, ok=not failed, failed=targets))
             if ev.text is not None and ev.tool_call_id:
                 st.raw_len[ev.tool_call_id] = len(ev.text)
-        if failed:
-            return None
+        # A failed call is no follow-up and is never annotated, but it is still read: a failed build
+        # whose output was cut, a timeout and a refusal are results with an error status.
         found = self.registry.run("tool", tool, ev)
-        if fetched_nothing(tool, ev.json, found):          # a read that got nothing is not a follow-up
+        if not failed and fetched_nothing(tool, ev.json, found):      # a read that got nothing is no follow-up
             with self.buffer.lock():
                 st.calls[index] = dataclasses.replace(st.calls[index], ok=False)
         if not found:
@@ -99,12 +110,15 @@ class FinePrint:
             if not late:
                 st.obs.extend(found)
         if late:
-            self.ledger.record(ev.session_id, ev.turn_id, found)
+            self.ledger.record(st.session_id, st.turn_id, found)
             return None
-        return self._note(ev, found, st)
+        return None if failed else self._note(ev, found, st)
 
     def _note(self, ev: ToolEvent, found: list[Obs], st: TurnState) -> Optional[str]:
         if ev.text is None or ev.tool in C.NEVER_ANNOTATE or not self.notes_on():
+            return None
+        obj = ev.json
+        if obj is not None and "_fine_print" in obj:       # never write over a key that is already there
             return None
         noted = [o for o in found if o.note]
         with self.buffer.lock():
@@ -113,10 +127,8 @@ class FinePrint:
             if not noted:
                 return None
             st.notes += len(noted)
-        out = ev.text
-        is_object = ev.json is not None
-        for obs in reversed(noted):
-            out = annotate(out, obs.note, is_object)
+        out = annotate(ev.text, [o.note for o in noted], obj is not None)      # one key for all of them
+        for obs in noted:
             obs.noted = True
         notes = noted
         with self.buffer.lock():
@@ -133,7 +145,7 @@ class FinePrint:
         ``post_llm_call`` closes a normal turn; ``on_session_end`` fires for every turn and closes the
         ones that failed or were interrupted (it finds nothing to do after a normal close)."""
         self.stats["hooks"] += 1
-        session_id, turn_id = str(session_id or ""), str(turn_id or "")
+        session_id, turn_id = self.buffer.canonical(str(session_id or "")), str(turn_id or "")
         st = self.buffer.pop(session_id, turn_id)
         self._flush_stale()
         extra: list[Obs] = []
@@ -164,9 +176,7 @@ class FinePrint:
                       context_length if isinstance(context_length, int) else 0,
                       api_call_count if isinstance(api_call_count, int) else 0)
         if ev.context_length > 0 and session_id:
-            if len(self.context_length) > 256:
-                self.context_length.clear()
-            self.context_length[str(session_id)] = ev.context_length
+            _put(self.context_length, self.buffer.canonical(str(session_id)), ev.context_length)
         found = self.registry.run("response", "", ev)
         if found:
             st = self.buffer.get(str(session_id or ""), str(turn_id))
@@ -174,10 +184,13 @@ class FinePrint:
                 st.obs.extend(found)
 
     # ── compaction driver (post_auxiliary_call, post_compaction) ───────────────────────────────────
-    def aux_call(self, aux_task: str = "", error: Any = None, error_type: Any = None, **_: Any) -> None:
-        if aux_task == "compression":
+    def aux_call(self, aux_task: str = "", error: Any = None, error_type: Any = None, session_id: str = "",
+                 **_: Any) -> None:
+        """Remember, per session, whether its last compression helper call failed. A call that
+        carries no session (cron, idle work) is not attributed to anybody."""
+        if aux_task == "compression" and session_id:
             with self._side_lock:
-                self._last_summary = (time.time(), not (error or error_type))
+                _put(self._summary_calls, str(session_id), (time.time(), not (error or error_type)))
 
     def compaction(self, session_id: str = "", old_session_id: str = "", kind: str = "", reason: str = "",
                    before_tokens: Any = None, after_tokens: Any = None, messages_removed: Any = None,
@@ -186,16 +199,26 @@ class FinePrint:
         The observation waits for the end of the session's current or next turn, where the card goes."""
         self.stats["hooks"] += 1
         session_id, old_session_id = str(session_id or ""), str(old_session_id or "")
-        if old_session_id and session_id and old_session_id != session_id:
+        rotated = bool(old_session_id and session_id and old_session_id != session_id)
+        if rotated:
             self.buffer.rename_session(old_session_id, session_id)
             self.ledger.rename_session(old_session_id, session_id)
             with self._side_lock:
                 if old_session_id in self.pending:
                     self.pending.setdefault(session_id, []).extend(self.pending.pop(old_session_id))
-                if old_session_id in self.parents:
+                if old_session_id in self.parents:                     # the rotated session is a subagent
                     self.parents[session_id] = self.parents.pop(old_session_id)
+                for child, parent in list(self.parents.items()):       # ... or it has subagents
+                    if parent == old_session_id:
+                        self.parents[child] = session_id
+                if old_session_id in self.child_hits:
+                    self.child_hits[session_id] = self.child_hits.get(session_id, 0) + self.child_hits.pop(old_session_id)
+                if old_session_id in self.context_length:
+                    self.context_length[session_id] = self.context_length.pop(old_session_id)
         with self._side_lock:
-            stamp, ok = self._last_summary
+            # the helper call of this compaction ran under this session, before or after the rotation
+            calls = [self._summary_calls.pop(sid) for sid in {old_session_id, session_id} if sid in self._summary_calls]
+            stamp, ok = max(calls) if calls else (0.0, True)
             failed = (not ok) and (time.time() - stamp) < 300.0
 
         def _int(value: Any) -> Optional[int]:
@@ -206,7 +229,8 @@ class FinePrint:
         found = self.registry.run("compaction", "", ev)
         if found and session_id:
             with self._side_lock:
-                self.pending.setdefault(session_id, []).extend(found)
+                waiting = self.pending.pop(session_id, [])
+                _put(self.pending, session_id, waiting + found)
 
     def _close(self, st: TurnState, history: Any, platform: str, model: str, post: bool) -> Optional[str]:
         observations = list(st.obs)
@@ -221,7 +245,7 @@ class FinePrint:
             if parent:        # a subagent's notice would land in the parent chat: fold it into the parent's card
                 open_hits = sum(1 for o in observations if not o.recovered)
                 if open_hits:
-                    self.child_hits[parent] = self.child_hits.get(parent, 0) + open_hits
+                    _put(self.child_hits, parent, self.child_hits.get(parent, 0) + open_hits)
             elif post:
                 card, groups, child_hits = self._card(st.session_id, observations, platform)
                 if card and self.host.post(card):        # only a delivered card counts as shown
@@ -294,13 +318,18 @@ class FinePrint:
     # ── session bookkeeping ────────────────────────────────────────────────────────────────────────
     def subagent_start(self, parent_session_id: str = "", child_session_id: str = "", **_: Any) -> None:
         if parent_session_id and child_session_id:
-            self.parents[str(child_session_id)] = str(parent_session_id)
+            with self._side_lock:
+                _put(self.parents, str(child_session_id), self.buffer.canonical(str(parent_session_id)))
 
     def session_deleted(self, session_id: str = "", deleted_ids: Any = None, **_: Any) -> None:
         ids = [str(session_id)] if session_id else []
         if isinstance(deleted_ids, (list, tuple)):
             ids.extend(str(i) for i in deleted_ids)
         self.ledger.purge(ids)
+        with self._side_lock:
+            for sid in ids:
+                for mapping in (self.parents, self.child_hits, self.pending, self.context_length, self._summary_calls):
+                    mapping.pop(sid, None)
 
 
 def guarded(fn: Callable, stats: dict) -> Callable:

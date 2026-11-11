@@ -53,8 +53,8 @@ def _web_cut(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 
 
 def _url_cap(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
-    return (f"web_extract: {n['asked']} URLs requested, only the first {n['fetched']} fetched; "
-            f"{n['dropped']} skipped with no error entry.",
+    return (f"web_extract: {n['asked']} URLs were given, only the first {n['fetched']} were passed on; "
+            f"{n['dropped']} dropped with no result entry.",
             "ask the agent to fetch the remaining URLs in another call. Hardcoded in v0.23.0.")
 
 

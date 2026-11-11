@@ -150,16 +150,15 @@ def stored_copy_cap(ev: ToolEvent) -> Iterator[Obs]:
     for row in rows:
         if not isinstance(row, dict):
             continue
-        footer = parse_web_footer(row.get('content'))
+        url = str(row.get('url') or '')
+        footer = parse_web_footer(row.get('content'), url)
         if not footer or not footer['path'] or footer['total'] <= _STORED_PAGE_CAP:
             continue
         total = footer['total']
-        url = str(row.get('url') or '')
         yield Obs('web-extract-stored-copy-2m-cap', numbers={'shown': _STORED_PAGE_CAP, 'total': total},
                   subject=url_host(url) or safe_label(footer['path']), cause=url or footer['path'],
-                  severity='digest',      # the page's own card (head + tail) carries the advice
-                  note=(f'web_extract saved only the first {_STORED_PAGE_CAP:,} of {total:,} source chars; '
-                        'the saved copy is not complete. A direct download can preserve the rest.'))
+                  severity='digest')      # the page's own card (head + tail) carries the advice; no model
+        # note: the footer this is read from is text inside the page (see signals.parse_web_footer)
 
 
 @text('web-extract-stored-copy-2m-cap')
@@ -197,7 +196,8 @@ def batch_timeout(ev: ToolEvent) -> Iterator[Obs]:
 @text('web_extract.batch_timeout')
 def _batch_timeout(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     return (f"web_extract: the provider batch timed out after {n['seconds']}s; all {n['urls']} URLs returned timeout errors.",
-            'ask the agent to split the URLs into smaller calls. web.extract_timeout applies to the whole batch.')
+            'ask the agent to split the URLs into smaller calls: the time limit covers the whole batch '
+            '(core reads it from web.extract_timeout, a key that is not in the default config).')
 
 
 # tools/browser_use_cli.py:97,884-888 (Hermes v0.23.0).

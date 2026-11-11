@@ -21,7 +21,7 @@ def test_long_line_recovery_requires_code_not_another_line_offset():
     assert len(found) == 1
     obs = found[0]
     assert obs.severity == "digest"              # 2 of 6 lines cut: the size of the loss is unknown, no card
-    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 6}
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 6, "cut": 2}
     assert not any(r.satisfied([Call("read_file", {"path": "long_lines.txt", "offset": 2})])
                    for r in obs.recover)
     for tool in ("execute_code", "terminal"):
@@ -92,10 +92,11 @@ def test_redaction_does_not_turn_a_visible_prefix_length_into_a_guessed_cap():
     found = _fixture_obs("files_long_line_redacted.json")
     assert len(found) == 1
     obs = found[0]
-    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 2}
-    assert obs.severity == "card"                # every line the model received was cut
+    # redaction shortened one kept prefix, so only the other line is cut for sure: no card, no cap claimed
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 2, "cut": 1}
+    assert obs.severity == "digest"
     line, _ = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
-    assert "all 2 lines returned were cut" in line and "prefix" in line and "cut at" not in line
+    assert "2 of 2 lines returned end with the '... [truncated]' marker" in line and "cut at" not in line
 
 
 def test_spill_path_shapes_and_single_owner_for_a_clamped_read():
@@ -134,10 +135,12 @@ def test_a_one_line_cached_web_page_has_one_owner():
 
 def test_long_line_text_says_how_much_of_the_read_was_cut():
     say = lambda numbers: TEXT["long-line-clamps"](numbers, "a.json", lambda key, default: default)[0]
-    assert "the only line returned was cut" in say({"marked": 1, "prefix_max": 2000, "lines": 1})
-    assert "2 of 6 lines returned were cut" in say({"marked": 2, "prefix_max": 2000, "lines": 6})
-    assert "1 of 40 lines returned was cut" in say({"marked": 1, "prefix_max": 2000, "lines": 40})
-    assert "1 line came back cut" in say({"marked": 1, "prefix_max": 2000})        # rows logged before `lines` existed
+    assert "the only line returned was cut at 2,000 chars" in say({"marked": 1, "prefix_max": 2000, "lines": 1, "cut": 1})
+    assert "all 3 lines returned were cut at 2,000 chars" in say({"marked": 3, "prefix_max": 2000, "lines": 3, "cut": 3})
+    assert "2 of 6 lines returned end with the '... [truncated]' marker" in say(
+        {"marked": 2, "prefix_max": 2000, "lines": 6, "cut": 2})
+    assert "1 of 40 lines returned ends with" in say({"marked": 1, "prefix_max": 2000, "lines": 40, "cut": 1})
+    assert "2 of 2 lines returned end with" in say({"marked": 2, "prefix_max": 2000, "lines": 2, "cut": 1})
 
 
 def test_terminal_window_is_a_card_only_when_under_half_of_the_output_was_kept():

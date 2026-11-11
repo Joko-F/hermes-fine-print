@@ -28,6 +28,9 @@ EMBED_TARGET_BYTES_DEFAULT = 262_144   # vision.embed_target_bytes, clamped 65,5
 EMBED_TARGET_BYTES_MIN = 65_536
 EMBED_TARGET_BYTES_MAX = 4_194_304
 
+# terminal
+TERMINAL_LOG_CAP_CHARS = 5_000_000     # _SPILL_CAP_CHARS: the saved full-output log stops there (tools/environments/base_output.py:33)
+
 # read_file
 READ_LINE_CLAMP = 2_000                # tool_output.max_line_length default
 XLSX_MAX_ROWS = 5_000                  # _MAX_XLSX_ROWS_PER_SHEET (tools/read_extract.py:30-38)

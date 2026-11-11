@@ -7,7 +7,7 @@ import zipfile
 from fine_print.engine import REGISTRY, Call, CommitRow, Recover, ToolEvent
 from fine_print.rules.tool import probe_docx, probe_xlsx
 from fine_print.signals import decode_stored, parse_lost_tail, parse_persisted, parse_scale_note, safe_label
-from test_engine import run_tool, web_result
+from test_engine import run_tool, web_page, web_result
 
 
 def tool_obs(tool, args, result):
@@ -16,11 +16,11 @@ def tool_obs(tool, args, result):
 
 # ── 1. a follow-up must be a successful call of a tool that can fetch the missing part ─────────────
 def test_naming_the_saved_file_in_a_search_or_a_failed_read_is_not_a_follow_up():
-    names = Recover.names("example.com-7cac558ea3.md")
-    assert not names.satisfied([Call("web_search", {"query": "example.com-7cac558ea3.md"})])
-    assert not names.satisfied([Call("read_file", {"path": "/c/example.com-7cac558ea3.md"}, ok=False)])
-    assert names.satisfied([Call("read_file", {"path": "/c/example.com-7cac558ea3.md"})])
-    assert names.satisfied([Call("terminal", {"command": "sed -n 100,200p /c/example.com-7cac558ea3.md"})])
+    names = Recover.names("example.com-2dce0a4c50.md")
+    assert not names.satisfied([Call("web_search", {"query": "example.com-2dce0a4c50.md"})])
+    assert not names.satisfied([Call("read_file", {"path": "/c/example.com-2dce0a4c50.md"}, ok=False)])
+    assert names.satisfied([Call("read_file", {"path": "/c/example.com-2dce0a4c50.md"})])
+    assert names.satisfied([Call("terminal", {"command": "sed -n 100,200p /c/example.com-2dce0a4c50.md"})])
 
 
 def test_a_different_search_is_not_a_continuation():
@@ -41,7 +41,7 @@ def test_refetch_must_clearly_exceed_the_budget_that_cut_the_page():
 
 def test_a_failed_read_of_the_saved_copy_still_raises_the_card(fp, host):
     run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(), n=1)
-    run_tool(fp, "read_file", {"path": "/c/example.com-7cac558ea3.md"}, json.dumps({"error": "not found"}), n=2)
+    run_tool(fp, "read_file", {"path": "/c/example.com-2dce0a4c50.md"}, json.dumps({"error": "not found"}), n=2)
     assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli") is not None
 
 
@@ -127,7 +127,7 @@ def test_a_card_that_could_not_be_posted_is_not_recorded_as_shown(fp, host):
 
 
 def test_one_bullet_for_five_pages_uses_one_card_of_the_quota(fp, host):
-    pages = [{"url": f"https://example.com/{i}", "title": "t", "content": json.loads(web_result())["results"][0]["content"],
+    pages = [{"url": f"https://example.com/{i}", "title": "t", "content": web_page(f"https://example.com/{i}"),
               "error": None} for i in range(5)]
     run_tool(fp, "web_extract", {"urls": [p["url"] for p in pages]}, json.dumps({"results": pages}))
     card = fp.turn_end(session_id="s1", turn_id="t1", platform="cli")
@@ -219,12 +219,12 @@ def test_limit_advice_depends_on_the_spill_threshold_of_the_session(fp, host):
     from fine_print.cards import spill_threshold
     assert spill_threshold(0) == 38_400 and spill_threshold(64_000) == 38_400
     assert spill_threshold(1_000_000) == 100_000 and spill_threshold(8_000) == 8_000
-    long_page = web_result().replace("24,116 total", "50,000 total")
-    run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, long_page)
+    run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result(total=50_000))
     card = fp.turn_end(session_id="s1", turn_id="t1", platform="cli")
     assert "would push the result over the spill threshold" in card and "config set" not in card
     fp.api_response(session_id="s2", turn_id="t1", model="m", finish_reason="stop", context_length=1_000_000)
-    run_tool(fp, "web_extract", {"urls": ["https://example.com/b"]}, long_page.replace("/a", "/b"), session="s2")
+    run_tool(fp, "web_extract", {"urls": ["https://example.com/b"]},
+             web_result(url="https://example.com/b", total=50_000), session="s2")
     card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
     assert "hermes config set web.extract_char_limit 55000" in card
 

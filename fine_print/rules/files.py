@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Iterator
 
+from .. import constants as C
 from ..cards import Cfg, text
 from ..engine import CommitRow, Obs, Recover, ToolEvent, rule
 from ..signals import basename, safe_label, strip_untrusted
@@ -51,8 +52,11 @@ def _spill_path(path: str) -> bool:
 _NUMBERED_LINE = re.compile(r"^\d+\|", re.M)
 
 
-def _clamped(obj: dict) -> tuple[int, int, int] | None:
-    """(marked lines, longest kept prefix, lines returned) of a read whose lines were cut."""
+def _clamped(obj: dict) -> tuple[int, int, int, int] | None:
+    """(marked lines, longest kept prefix, lines returned, lines cut for sure) of a read whose lines
+    were cut. ``truncated_lines`` says that at least one line was cut, not which: a file may contain
+    the marker text itself. Every real cut keeps the same number of chars (the cap), so the lines
+    whose kept prefix is the longest one are the ones counted as cut for sure."""
     if obj.get("truncated_lines") is not True or not isinstance(obj.get("content"), str):
         return None
     lengths = [len(m.group(1)) for m in _CLAMPED_LINE.finditer(obj["content"])]
@@ -60,7 +64,8 @@ def _clamped(obj: dict) -> tuple[int, int, int] | None:
         return None
     # Redaction runs after clipping and can shorten a prefix. A literal marker
     # may also occur in a file, so count marked lines, not purported original lengths.
-    return len(lengths), max(lengths), len(_NUMBERED_LINE.findall(obj["content"]))
+    longest = max(lengths)
+    return len(lengths), longest, len(_NUMBERED_LINE.findall(obj["content"])), lengths.count(longest)
 
 
 @rule("long-line-clamps", driver="tool", tools={"read_file"}, core_tells="model", status="verified")
@@ -74,31 +79,30 @@ def long_lines(ev: ToolEvent) -> Iterator[Obs]:
     clipped = _clamped(obj)
     if clipped is None:
         return
-    count, prefix_max, lines = clipped
+    count, prefix_max, lines, cut = clipped
     name = basename(path)
     # Core does not report how long a cut line was, so the size of the loss is unknown. A card only
-    # when every line the model received was cut (a one-line JSON, a minified file); one long line
-    # in an otherwise readable file is logged.
-    yield Obs("long-line-clamps", numbers={"marked": count, "prefix_max": prefix_max, "lines": lines},
+    # when every line the model received was cut for sure (a one-line JSON, a minified file); one
+    # long line in an otherwise readable file is logged.
+    yield Obs("long-line-clamps",
+              numbers={"marked": count, "prefix_max": prefix_max, "lines": lines, "cut": cut},
               subject=safe_label(path), cause=path,
               recover=(Recover.names(name, ("execute_code", "terminal")),) if name else (),
-              severity="card" if count >= lines else "digest")
+              severity="card" if cut >= lines else "digest")
 
 
 @text("long-line-clamps")
 def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
     marked, lines = n["marked"], n.get("lines", 0)
-    if marked == lines == 1:
-        which = "the only line returned was"
-    elif lines and marked >= lines:
-        which = f"all {marked:,} lines returned were"
-    elif lines:
-        which = f"{marked:,} of {lines:,} lines returned {'was' if marked == 1 else 'were'}"
-    else:
-        which = f"{marked:,} line{'' if marked == 1 else 's'} came back"
-    rest = "the rest of that line" if marked == 1 else "the rest of each cut line"
-    return (f"read_file · {s}: {which} cut with a '... [truncated]' marker (longest kept prefix "
-            f"{n['prefix_max']:,} chars); {rest} was not returned.",
+    cut = n.get("cut", marked)
+    kept = f"{n['prefix_max']:,} chars"
+    if lines and cut >= lines:
+        which = "the only line returned was" if lines == 1 else f"all {lines:,} lines returned were"
+        rest = "the rest of that line" if lines == 1 else "the rest of each line"
+        return f"read_file · {s}: {which} cut at {kept}; {rest} was not returned.", None
+    of = f" of {lines:,} lines returned" if lines else " line" + ("" if marked == 1 else "s")
+    return (f"read_file · {s}: {marked:,}{of} end{'s' if marked == 1 else ''} with the '... [truncated]' marker "
+            f"(longest kept prefix {kept}); the rest of a cut line was not returned.",
             None)
 
 
@@ -140,8 +144,11 @@ def _terminal_window(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
                 "pass a larger timeout= to terminal (Hermes names 600 s as the foreground maximum) "
                 "or run the job with background=true.")
     # tools/tool_output_limits.py:13, :32-52: default 50,000, cached for the life of the process.
+    # tools/environments/base_output.py:29-35: the full stream is teed to a log up to 5,000,000 chars.
+    log = ("Hermes saved the stream to a log file" if n["total"] <= C.TERMINAL_LOG_CAP_CHARS else
+           f"the log file Hermes saved stops at {C.TERMINAL_LOG_CAP_CHARS:,} chars")
     return (f"terminal: the capture kept {n['shown']:,} of {n['total']:,} chars (head and tail); "
-            "the middle was left out of the result and saved to a log file.",
+            f"the middle was left out of the result; {log}.",
             "ask the agent to search the saved log with search_files (its path is in the result), or raise "
             "tool_output.max_bytes (default 50000). Applies: gateway restart.")
 
@@ -156,7 +163,7 @@ def spill_read_clamped(ev: ToolEvent) -> Iterator[Obs]:
     clipped = _clamped(ev.json or {})
     if clipped is None:
         return
-    count, prefix_max, _lines = clipped
+    count, prefix_max, _lines, _cut = clipped
     name = basename(path)
     yield Obs("spill-format-dead-end-v0.23", numbers={"marked": count, "prefix_max": prefix_max},
               subject=safe_label(path), cause=path, recover=(Recover.names(name, ("execute_code", "terminal")),),
