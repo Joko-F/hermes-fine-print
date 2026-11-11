@@ -115,6 +115,21 @@ TEXT: dict[str, Callable[[dict, str, Cfg], tuple[str, str]]] = {
     "office-extraction-silent-loss": _office,
 }
 
+
+def text(rule_id: str):
+    """Register the user-facing text of a rule next to the rule itself:
+
+        @text("some-limit-id")
+        def _some_limit(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
+            return ("what happened, with the numbers from n", "the fix")
+    """
+    def deco(fn: Callable[[dict, str, Cfg], tuple[str, str]]):
+        if rule_id in TEXT:
+            raise ValueError(f"duplicate text for {rule_id!r}")
+        TEXT[rule_id] = fn
+        return fn
+    return deco
+
 _TOLD = {
     "model": "Hermes told the model, not you.",
     "user": "Hermes showed you a status line; the model was not told.",
