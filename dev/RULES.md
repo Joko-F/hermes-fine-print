@@ -45,8 +45,9 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 
     These events are not in stored history, so the report never counts them and their rules are
     verified by a live session, not by replay (see "Promotion to verified"). The request body that
-    core hands to hooks is cut to 50,000 characters, so nothing is read from it: no tool list, no
-    request options.
+    core hands to hooks is cut to 50,000 characters by default, so nothing is read from it: no tool
+    list, no request options. Hooks of a turn the session did not announce through `pre_llm_call` (a
+    background review fork shares its parent's session id) never reach a rule.
   - `tools` are exact tool names; `prefixes` (e.g. `("mcp_",)`) match by prefix. Always gate by tool.
   - `core_tells`: who Hermes itself informs when the limit bites: `nobody`, `model`, `user`, `both`.
     A model note is delivered only when this is `nobody`.

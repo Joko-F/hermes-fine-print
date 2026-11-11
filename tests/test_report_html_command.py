@@ -62,3 +62,16 @@ def test_a_folder_that_cannot_be_written_is_reported_not_raised(fp, tmp_path, mo
     monkeypatch.setenv("FINE_PRINT_REPORT_DIR", str(blocker / "sub"))
     reply = commands(fp).handle("report html", "s1")
     assert reply.startswith("Fine Print: the report page could not be written (")
+
+
+def test_html_may_stand_on_either_side_of_the_number(fp, tmp_path, monkeypatch):
+    history(tmp_path, monkeypatch, [web_turn("https://h.example/a")])
+    assert commands(fp).handle("report 7 html", "s1").startswith("Fine Print · report page written: ")
+    assert "The last 7 days" in (tmp_path / "out" / "limits-report.html").read_text(encoding="utf-8")
+    assert commands(fp).handle("report HTML", "s1").startswith("Fine Print · report page written: ")
+
+
+def test_extra_words_after_report_show_usage(fp, tmp_path, monkeypatch):
+    history(tmp_path, monkeypatch, [])
+    assert commands(fp).handle("report html 7 8", "s1") == "Usage: /limits report [html] [days]"
+    assert commands(fp).handle("report 7 8", "s1") == "Usage: /limits report [html] [days]"

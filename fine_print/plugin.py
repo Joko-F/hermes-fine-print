@@ -120,7 +120,7 @@ def register(ctx: Any) -> None:
 
     ctx.register_command("limits", handler=limits,
                          description="What Hermes silently cut, shrank or swapped, and how to fix it",
-                         args_hint="[last|topics|explain <id>|report|self-test|notes on|off]")
+                         args_hint="[last|topics|explain <id>|report [html]|self-test|notes on|off]")
 
     def sheet(_session_info: Any = None) -> str:
         try:

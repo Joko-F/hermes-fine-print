@@ -10,8 +10,8 @@ from fine_print.engine import REGISTRY, SessionEvent
 
 SESSION_RULES = (
     "context-length-pin-ignored", "compaction-trigger-floor-and-codex-autoraise", "codex-oauth-context-cap",
-    "stale-system-prompt-and-pinned-tools-on-resume",
 )
+PIN = "context-length-pin-ignored"
 
 
 def run(fp, host, *, cfg=None, window=200_000, model="claude-sonnet-5-5", provider="anthropic",
@@ -43,14 +43,28 @@ def test_all_rules_registered_on_the_session_driver():
 
 
 # ── context-length-pin-ignored ─────────────────────────────────────────────────────────────────────
-def test_pin_differs_from_window_fires(fp, host):
+def test_a_window_above_the_pin_proves_the_pin_is_not_in_force(fp, host):
     got = run(fp, host, cfg={"model.context_length": 32_000}, window=200_000)
-    obs = got["context-length-pin-ignored"]
+    obs = got[PIN]
     assert obs.numbers == {"pinned": 32_000, "window": 200_000} and obs.severity == "card"
     assert line(obs, host) == (
-        "model.context_length pins 32,000 tokens in your config; this session (claude-sonnet-5-5) runs with a "
-        "200,000-token window (Hermes applies the pin only while the running model, base URL and provider all "
-        "match the configured default; the hook does not show which one differs).")
+        "model.context_length pins 32,000 tokens in your config, but this session (claude-sonnet-5-5) runs with a "
+        "200,000-token window: the pin is not in force. Hermes applies it only while the running model, base URL "
+        "and provider all match the configured default.")
+
+
+def test_a_window_below_the_pin_names_both_causes_and_is_no_card(fp, host):
+    """Core lowers a window at run time without looking at the pin (the long-context tier cap, a provider
+    limit), so a smaller window does not prove that the pin was dropped."""
+    obs = run(fp, host, cfg={"model.context_length": 1_000_000}, window=200_000)[PIN]
+    assert obs.numbers == {"pinned": 1_000_000, "window": 200_000} and obs.severity == "digest"
+    text = line(obs, host)
+    assert text == (
+        "model.context_length pins 1,000,000 tokens in your config; this session (claude-sonnet-5-5) runs with a "
+        "smaller 200,000-token window. Either the pin is not in force (Hermes applies it only while model, base URL "
+        "and provider match the configured default) or Hermes lowered the window after a provider limit; the hook "
+        "does not show which.")
+    assert "not in force." not in text
 
 
 def test_pin_given_as_digit_string_counts(fp, host):
@@ -74,36 +88,33 @@ def test_pin_junk_values_and_subagents_are_silent(fp, host):
 FLOOR = "compaction-trigger-floor-and-codex-autoraise"
 
 
-def test_threshold_below_floor_on_small_window_fires(fp, host):
-    got = run(fp, host, cfg={"compression.threshold": 0.5}, window=200_000)
-    obs = got[FLOOR]
-    assert obs.numbers == {"configured": 0.5, "window": 200_000} and obs.severity == "log"     # the shipped default
-    assert line(obs, host) == (
-        "compression.threshold is 0.5 in your config, but this session's window is 200,000 tokens (under "
-        "512,000), and Hermes v0.23.0 raises the compaction trigger for such windows to at least 0.75 of the "
-        "usable window, so compaction starts later than configured.")
+def test_the_shipped_default_threshold_yields_nothing(fp, host):
+    """0.50 is what every user who set nothing has: no row, no "in your config" for a value nobody chose."""
+    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.5}, window=200_000, sid="a")
+    assert FLOOR not in run(fp, host, window=128_000, sid="b")           # key absent: core default 0.50
 
 
-def test_a_threshold_the_user_chose_is_a_digest_line(fp, host):
+def test_a_threshold_the_user_chose_states_the_floor_and_not_when_compaction_starts(fp, host):
     obs = run(fp, host, cfg={"compression.threshold": 0.3}, window=200_000)[FLOOR]
     assert obs.numbers == {"configured": 0.3, "window": 200_000} and obs.severity == "digest"
-    assert line(obs, host).startswith("compression.threshold is 0.3 in your config, but this session's window is 200,000")
-
-
-def test_threshold_default_is_used_when_the_key_is_absent(fp, host):
-    assert FLOOR in run(fp, host, window=128_000)                       # core default 0.50 (config_defaults.py:576)
+    text = line(obs, host)
+    assert text == (
+        "compression.threshold is 0.3 in your config, but this session's window is 200,000 tokens (under "
+        "512,000), and Hermes v0.23.0 raises the threshold ratio for such windows to at least 0.75. Other limits "
+        "(compression.threshold_tokens, the summary model's own window) can still lower the trigger.")
+    assert "later than configured" not in text
 
 
 def test_threshold_nearest_misses_are_silent(fp, host):
     assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.75}, window=200_000, sid="a")     # at the floor
     assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.9}, window=200_000, sid="b")
-    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.5}, window=512_000, sid="c")      # not under
-    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.5}, window=1_000_000, sid="d")
-    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.5}, window=0, sid="e")            # unknown
+    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.3}, window=512_000, sid="c")      # not under
+    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.3}, window=1_000_000, sid="d")
+    assert FLOOR not in run(fp, host, cfg={"compression.threshold": 0.3}, window=0, sid="e")            # unknown
 
 
 def test_threshold_not_claimed_when_something_else_sets_the_trigger(fp, host):
-    base = {"compression.threshold": 0.5}
+    base = {"compression.threshold": 0.3}
     for i, extra in enumerate(({"compression.threshold_tokens": 60_000}, {"compression.enabled": False},
                                {"context.engine": "lcm"}, {"compression.model_thresholds": {"sonnet": 0.9}})):
         assert FLOOR not in run(fp, host, cfg={**base, **extra}, sid=f"x{i}")
@@ -146,31 +157,17 @@ def test_codex_misses(fp, host):
                             model="gpt-6.1-sol", provider="openai-codex", sid="h")
 
 
-# ── stale-system-prompt-and-pinned-tools-on-resume ─────────────────────────────────────────────────
-RESUME = "stale-system-prompt-and-pinned-tools-on-resume"
-
-
-def test_resumed_session_fires(fp, host):
-    obs = run(fp, host, first_turn=False)[RESUME]
-    assert obs.severity == "log" and obs.numbers == {}
-    assert line(obs, host) == (
-        "this session continues earlier turns; a continuing session normally replays its stored system prompt and "
-        "tool list, so later edits to SOUL.md, project context files or skills do not reach it until /new, a "
-        "compaction or `hermes sessions refresh-prompts`.")
-
-
-def test_first_turn_and_unknown_are_silent(fp, host):
-    assert RESUME not in run(fp, host, first_turn=True, sid="a")
-    assert RESUME not in run(fp, host, first_turn=None, sid="b")                                 # never seen: unknown
-    fp.subagent_start(parent_session_id="p", child_session_id="kid")
-    assert RESUME not in run(fp, host, first_turn=False, sid="kid")
-
-
 def test_each_session_is_judged_once(fp, host):
-    assert RESUME in run(fp, host, first_turn=False)
+    assert PIN in run(fp, host, cfg={"model.context_length": 32_000})
+    fp.user_turn(session_id="s1", turn_id="t2", user_message="again", conversation_history=[{}], is_first_turn=False)
     fp.api_request(session_id="s1", turn_id="t2", model="m", provider="p")
     fp.api_response(session_id="s1", turn_id="t2", model="m", provider="p", finish_reason="stop", context_length=1)
     assert [o.rule_id for o in fp.buffer.get("s1", "t2").obs if o.rule_id in SESSION_RULES] == []
+
+
+def test_no_rule_is_left_for_a_resumed_session(fp, host):
+    """A continued session is a standing fact, not a limit that bit: it yields nothing."""
+    assert run(fp, host, first_turn=False) == {}
 
 
 # ── garbage ────────────────────────────────────────────────────────────────────────────────────────

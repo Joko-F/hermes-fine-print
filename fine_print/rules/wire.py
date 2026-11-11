@@ -37,6 +37,9 @@ from ..signals import clean_token
 # agent/anthropic_message_convert.py:683 (Anthropic shape).
 _EVICTED = "[screenshot removed to save context]"
 _TEXT_PARTS = frozenset({"text", "input_text"})
+# The request shapes ``engine.image_sizes`` reads, by core's api_mode. Any other transport (Bedrock Converse
+# writes ``{"image": {...}}`` blocks without a type) would count as "no images sent": the rule stays silent.
+_KNOWN_SHAPES = frozenset({"chat_completions", "anthropic_messages", "codex_responses"})
 _IMAGE_PARTS = frozenset({"image_url", "image", "input_image"})
 
 
@@ -108,6 +111,8 @@ def image_gap(ev: WireEvent) -> Iterator[Obs]:
     is one observation, a larger gap is a new one. Severity: a gap that core's own placeholder marks as
     eviction is a card (pixels the agent loaded are gone from what the model sees, and the user is not
     told); a gap with no marker has several possible causes and stays a digest line."""
+    if ev.api_mode not in _KNOWN_SHAPES:
+        return
     held = ev.history_images
     if not held:
         return
@@ -169,12 +174,12 @@ def _image_detail(n: dict, s: str, cfg: Cfg):
 @rule("transport-retries-hidden", driver="api_error", core_tells="user", status="fixture")
 def retries(ev: ApiErrorEvent) -> Iterator[Obs]:
     """``api_request_error`` fires for every failed attempt, before recovery and before ``retry_count`` is
-    incremented (agent/turn_api_error.py:137-152), so the count it carries is the number of retries that
-    came before this failure. A failure with ``retry_count >= 1`` and a retryable classification is
-    therefore evidence of at least that many earlier retries of the same call (the counter is per API
-    call: agent/conversation_loop.py:1761); the first failure (0) is not. The turn keeps the first such
-    observation (``FinePrint._attach`` keeps one per rule and cause), so a turn reports the first retried
-    failure, not the last."""
+    incremented (agent/turn_api_error.py:137-152). The counter is per API call
+    (agent/conversation_loop.py:1761) and is also moved by compression restarts, invalid-response retries
+    and one rate-limit path that sets it to the limit minus one (agent/turn_recovery.py:1985), so the
+    sentence states the counter as core reports it and does not call it a number of retries. A retryable
+    failure with the counter at 1 or more is reported; the first failure (0) is not. The turn keeps the
+    first such observation (``FinePrint._attach`` keeps one per rule and cause)."""
     if ev.retryable is not True or ev.retry_count < 1:
         return
     yield Obs("transport-retries-hidden",
@@ -187,7 +192,6 @@ def retries(ev: ApiErrorEvent) -> Iterator[Obs]:
 def _retries(n: dict, s: str, cfg: Cfg):
     head = f"{s}: " if s else ""
     what = f"HTTP {n['status']}" if n.get("status") else (n.get("kind") or "an error")
-    limit = f" (retry limit {n['max']})" if n.get("max") else ""
-    k = n["retries"]
-    return (f"{head}a provider request failed ({what}) after {k} earlier {'retry' if k == 1 else 'retries'}"
-            f"{limit}.", None)
+    limit = f" of {n['max']}" if n.get("max") else ""
+    return (f"{head}a provider request failed ({what}) and was retryable; Hermes's retry counter for this "
+            f"call stood at {n['retries']}{limit}.", None)

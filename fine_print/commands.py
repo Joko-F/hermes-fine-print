@@ -151,10 +151,11 @@ class Commands:
     def _report(self, rest: list[str]) -> str:
         if self.report is None:
             return "The history report is not available in this build."
-        html = bool(rest) and rest[0].lower() == "html"
-        if html:
-            rest = rest[1:]
+        html = any(word.lower() == "html" for word in rest)
+        rest = [word for word in rest if word.lower() != "html"]
         try:
+            if len(rest) > 1:
+                raise ValueError(rest)
             days = max(1, min(3650, int(rest[0]))) if rest else 30
         except ValueError:
             return "Usage: /limits report [html] [days]"

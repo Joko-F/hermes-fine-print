@@ -88,7 +88,7 @@ def test_image_sizes_reads_chat_anthropic_and_responses_shapes():
         {"type": "function_call_output", "output": [{"type": "input_image", "image_url": "https://h.example/a.png"}]},
         {"role": "assistant", "content": "an image_url in plain text is not an image part"},
     ]
-    assert image_sizes(messages) == [len(PNG), 300, 123, 23]
+    assert image_sizes(messages) == [len(PNG), 300, 123, 0]         # a remote URL carries no payload
 
 
 @pytest.mark.parametrize("junk", [None, "text", 7, [None, 3, "x"], [{"content": None}], [{"content": [None, 5, {}]}],
@@ -211,6 +211,7 @@ def test_session_rules_run_once_with_the_facts_of_the_first_request(host):
             ev.system_prompt_chars, ev.is_first_turn, ev.is_subagent) == \
         ("main-model", "anthropic", "cli", 200_000, 8192, 31, 1200, False, False)
     assert [o.rule_id for o in fp.buffer.get("S", "T1").obs if o.rule_id == "t-session"] == ["t-session"]
+    fp.user_turn(session_id="S", turn_id="T2", user_message="more", conversation_history=[{}], is_first_turn=False)
     fp.api_request(**request([], [], turn_id="T2", tool_count=5))
     fp.api_response(**response(turn_id="T2", context_length=64_000))
     assert len([e for e in seen if type(e).__name__ == "SessionEvent"]) == 1
@@ -240,3 +241,85 @@ def test_deleting_a_session_drops_its_side_state(host):
     fp.api_request(**request([], [], session_id="S2"))
     fp.session_deleted(session_id="S", deleted_ids=["S2"])
     assert not ({"S", "S2"} & (set(fp.session_facts) | set(fp._session_checked) | set(fp.models)))
+
+
+# ── audit 3: a background fork is not the session; a hook without a session is nobody's ──────────
+def announce(fp, turn="T1", session="S", message="hi"):
+    fp.user_turn(session_id=session, turn_id=turn, user_message=message, conversation_history=[],
+                 is_first_turn=True, model="main-model", platform="cli")
+
+
+def test_hooks_of_a_turn_the_session_did_not_announce_are_ignored(host):
+    """A review fork runs under the parent's session id with its own turn id and no pre_llm_call
+    (agent/background_review.py:1016-1019, agent/turn_context.py:858)."""
+    seen = []
+    fp = make(host, seen)
+    host.cfg["model.context_length"] = 32_000
+    announce(fp)
+    seen.clear()
+    images = [{"content": [chat_image(), chat_image()]}]
+    fp.api_request(**request(images, [], turn_id="FORK", model="fork-model"))
+    fp.api_error(session_id="S", turn_id="FORK", status_code=500, retry_count=1, retryable=True)
+    fp.aux_call(aux_task="vision", session_id="S", turn_id="FORK", model="helper")
+    fp.api_response(**response(turn_id="FORK", model="fork-model", context_length=128_000))
+    assert seen == []
+    assert fp.buffer.get("S", "FORK").obs == [] and "S" not in fp.models and "S" not in fp.context_length
+    fp.api_request(**request([], []))                                   # the session's own turn
+    fp.api_response(**response())
+    (ev,) = [e for e in seen if type(e).__name__ == "SessionEvent"]     # the check was not used up by the fork
+    assert (ev.model, ev.context_length) == ("main-model", 200_000)
+    assert fp.models["S"] == "main-model" and fp.context_length["S"] == 200_000
+
+
+def test_a_later_turn_of_the_session_replaces_the_announced_one(host):
+    seen = []
+    fp = make(host, seen)
+    announce(fp, "T1")
+    announce(fp, "T2")
+    seen.clear()
+    fp.api_request(**request([{"content": [chat_image()]}], [], turn_id="T1"))      # a straggler of the old turn
+    assert seen == []
+    fp.api_request(**request([{"content": [chat_image()]}], [], turn_id="T2"))
+    assert len(seen) == 1
+
+
+def test_the_announced_turn_follows_a_session_rotation_and_goes_with_a_deleted_session(host):
+    fp = make(host, [])
+    announce(fp, "T1", session="OLD")
+    fp.compaction(session_id="NEW", old_session_id="OLD", kind="summarize", reason="r", before_tokens=10,
+                  after_tokens=5, messages_removed=1)
+    assert fp._foreign_turn("NEW", "FORK") and not fp._foreign_turn("NEW", "T1")
+    fp.session_deleted(session_id="NEW")
+    assert not fp._foreign_turn("NEW", "FORK")
+
+
+@pytest.mark.parametrize("call", ["api_request", "api_error", "user_turn", "aux_call"])
+def test_a_hook_without_a_session_id_is_attributed_to_nobody(host, call):
+    seen = []
+    fp = make(host, seen)
+    {"api_request": lambda: fp.api_request(**request([{"content": [chat_image()]}], [], session_id="")),
+     "api_error": lambda: fp.api_error(session_id="", turn_id="T1", status_code=500, retry_count=1, retryable=True),
+     "user_turn": lambda: fp.user_turn(session_id="", turn_id="T1", user_message="hi", is_first_turn=True),
+     "aux_call": lambda: fp.aux_call(aux_task="vision", session_id="", turn_id="T1", model="helper")}[call]()
+    assert seen == [] and fp.buffer.get("", "T1").obs == []
+
+
+def test_a_response_observation_follows_the_turn_across_a_rotation(host):
+    """api_response used to append to the half of a turn that a rotation had already merged away."""
+    fp = make(host, [])
+    host.cfg["model.context_length"] = 32_000
+    stale = fp.buffer.get("S", "T1")
+    merged = fp.buffer.get("S2", "T1")
+    stale.merged_into = merged
+    fp.api_response(**response())
+    assert [o.rule_id for o in merged.obs] == ["t-session"] and stale.obs == []
+
+
+def test_a_vision_call_without_a_turn_is_dropped(host):
+    """The CLI describes an attached image in the client process before the turn exists (seen live: two
+    pids), so such a call is nobody's and leaves no state behind."""
+    seen = []
+    fp = make(host, seen)
+    fp.aux_call(aux_task="vision", session_id="", turn_id="", model="helper")
+    fp.aux_call(aux_task="vision", session_id="S", turn_id="", model="helper")
+    assert seen == [] and fp.buffer.get("S", "").obs == []

@@ -204,14 +204,17 @@ def test_a_failure_after_earlier_retries_is_one_digest_line(fp):
     (obs,) = fail(fp)
     assert obs.numbers == {"retries": 2, "max": 3, "status": 503, "kind": "InternalServerError"}
     assert obs.severity == "digest"
-    assert line(obs) == "gpt-5.5: a provider request failed (HTTP 503) after 2 earlier retries (retry limit 3)."
+    assert line(obs) == ("gpt-5.5: a provider request failed (HTTP 503) and was retryable; Hermes's retry counter "
+                         "for this call stood at 2 of 3.")
+    assert "retries" not in line(obs)            # core also moves the counter without a retry (turn_recovery.py:1985)
     assert "secret" not in str(obs.numbers) + line(obs)
     assert len(fail(fp)) == 1 and len(fail(fp, retry_count=3)) == 1          # one per turn, the first one is kept
 
 
 def test_connection_error_without_a_status_and_a_single_retry(fp):
     (obs,) = fail(fp, status_code=None, retry_count=1, max_retries=None, error={"type": "APIConnectionError"})
-    assert line(obs) == "gpt-5.5: a provider request failed (APIConnectionError) after 1 earlier retry."
+    assert line(obs) == ("gpt-5.5: a provider request failed (APIConnectionError) and was retryable; Hermes's retry "
+                         "counter for this call stood at 1.")
 
 
 def test_first_failure_and_unretryable_failures_are_not_reported(fp):
@@ -228,3 +231,18 @@ def test_first_failure_and_unretryable_failures_are_not_reported(fp):
 def test_api_error_garbage_never_raises(fp, kw):
     fail(fp, **kw)
     assert REGISTRY.failed == {}
+
+
+# ── audit 3: only the request shapes the counter knows ───────────────────────────────────────────
+@pytest.mark.parametrize("mode", ["bedrock_converse", "codex_app_server", "", "something_new"])
+def test_a_request_shape_the_counter_does_not_know_yields_nothing(fp, mode):
+    """Bedrock Converse writes {"image": {...}} blocks without a type: counted as no image at all, the rule
+    would say that images which were sent are missing (agent/bedrock_adapter.py build_converse_kwargs)."""
+    converse = [{"role": "user", "content": [{"text": "look"}, {"image": {"format": "png", "source": {"bytes": b"x"}}}]}]
+    assert send(fp, history(2), converse, mode=mode) == []
+
+
+@pytest.mark.parametrize("mode", ["chat_completions", "anthropic_messages", "codex_responses"])
+def test_the_three_known_shapes_are_read(fp, mode):
+    (obs,) = send(fp, history(3), [{"role": "user", "content": "go"}], mode=mode)
+    assert (obs.numbers["held"], obs.numbers["sent"]) == (3, 0)

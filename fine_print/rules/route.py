@@ -136,20 +136,29 @@ def _images(n: int) -> str:
 # began with the first pattern and the request carried no image part.
 _CLI_START = "[The user attached an image"
 _CLI_DESCRIBED = re.compile(r"^\[The user attached an image\. Here's what it contains:\n", re.M)
-_CLI_FAILED = re.compile(r"^\[The user attached an image but (?:it couldn't be analyzed\. |analysis failed \()", re.M)
+# the second line of a described note (:660-661); a note counts only with both of its lines
+_CLI_HINT = re.compile(r"^\[If you need a closer look, use vision_analyze with image_url: ", re.M)
+_CLI_FAILED = re.compile(
+    r"^\[The user attached an image but (?:it couldn't be analyzed\.|analysis failed \([^\n]*\)\.) "
+    r"You can try examining it with vision_analyze using image_url: ", re.M)
 
 
 @rule("cli-text-mode-image-description", driver="route", core_tells="both", status="verified")
 def cli_description(ev: UserTurnEvent) -> Iterator[Obs]:
     """The CLI's text-mode image routing wrote its note into the user message: the helper vision model
     described the attached image (or could not), and the message carries that text and the file path in
-    place of the image. Fires only when the message BEGINS with the CLI's note (where core puts it), then
-    counts the notes at line starts; the description is never read, stored or quoted. One observation per
-    kind; the card policy shows a cause once per session."""
+    place of the image. Fires only when the message BEGINS with the CLI's note (where core puts it) and
+    the note is complete: a described image is counted by its first line AND its closing hint line, a
+    failed one by its whole fixed sentence. The helper call itself cannot be used as evidence: the CLI
+    makes it in the client process, before the turn starts in another one (seen live). So a user message
+    that itself begins with a complete copy of the note would be read as a routed image; the README says
+    so. The description is never read, stored or quoted. One observation per kind; the card policy shows
+    a cause once per session."""
     chunks = _texts(ev.message)
     if not chunks or not chunks[0].startswith(_CLI_START):
         return
-    described, failed = _count(_CLI_DESCRIBED, chunks), _count(_CLI_FAILED, chunks)
+    described = min(_count(_CLI_DESCRIBED, chunks), _count(_CLI_HINT, chunks))
+    failed = _count(_CLI_FAILED, chunks)
     if described:
         yield Obs("cli-text-mode-image-description", numbers={"images": described}, subject="cli",
                   cause="described", severity="card")

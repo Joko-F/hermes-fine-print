@@ -271,3 +271,27 @@ def test_the_cli_note_in_the_first_text_part_of_a_list_counts(fp):
 def test_the_gateway_rule_and_the_cli_rule_do_not_fire_on_each_other(fp):
     assert turn(fp, CLI_OK) == []
     assert cli_turn(fp, GW_OK, turn_id="t2") == []
+
+
+# ── audit 3: a note counts only in its complete layout ───────────────────────────────────────────
+@pytest.mark.parametrize("message", [
+    "[The user attached an image. Here's what it contains:\nA red square.]\n\nwhat is this?",      # no hint line
+    "[The user attached an image. Here's what it contains:\nwhy does Hermes write this into my message?",
+    "[The user attached an image but it couldn't be analyzed.]\n\nhi",                              # not the sentence
+    "[The user attached an image but analysis failed (x)]\n\nhi",
+])
+def test_the_first_line_of_a_cli_note_alone_raises_nothing(fp, message):
+    assert cli_turn(fp, message) == []
+
+
+def test_two_openings_and_one_hint_count_as_one_image(fp):
+    message = "[The user attached an image. Here's what it contains:\n" + CLI_OK
+    (obs,) = cli_turn(fp, message)
+    assert obs.numbers == {"images": 1}
+
+
+def test_a_complete_copy_of_the_note_cannot_be_told_from_a_routed_image(fp):
+    """Documented in the README: the note is text inside the message and v0.23.0 gives no out-of-band
+    flag; the helper call that would prove it runs in another process."""
+    (obs,) = cli_turn(fp, CLI_OK)
+    assert obs.numbers == {"images": 1}

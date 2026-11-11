@@ -129,12 +129,14 @@ def _image_payload_chars(part: dict) -> int:
         value = part.get("image_url")
         if isinstance(value, dict):
             value = value.get("url")
-    return len(value) if isinstance(value, str) else 0
+    if not isinstance(value, str) or value.startswith(("http://", "https://")):
+        return 0
+    return len(value)
 
 
 def image_sizes(messages: Any, depth: int = 3) -> list[int]:
     """The image parts in a list of messages, in order, as the length of each one's encoded payload
-    (a data URL or base64 block; a remote URL counts by its own length). Reads the three shapes a
+    (a data URL or base64 block; a remote URL carries no payload and counts as 0). Reads the three shapes a
     request can have (chat ``image_url`` parts, Anthropic ``image`` blocks also inside ``tool_result``
     blocks, Responses ``input_image`` items) and never decodes or copies a payload."""
     out: list[int] = []
