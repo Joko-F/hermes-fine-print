@@ -13,15 +13,13 @@ from fine_print.engine import Call, Obs, Recover, REGISTRY, Registry, Rule
 from fine_print.ledger import Ledger
 from fine_print.report import _Session, render_report, scan
 from tests.conftest import FakeHost
+from tests.test_engine import saved_name, web_page
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────────────────────────
 def cut_page(url):
-    footer = ("\n\n──────── [TRUNCATED] ────────\nShowing 1 chars (head) + 1 chars (tail) of 10,000 total clean "
-              "characters.\nFull text saved to: /cache/web/page-0123456789.md\nTo read the omitted middle: read_file "
-              'path="/cache/web/page-0123456789.md" offset=2 limit=200  (the file is the complete page; raise/lower '
-              "offset to page through it).\n─────────────────────────────")
-    return {"url": url, "content": "x" + footer, "error": None}
+    """A page laid out exactly as core cuts it (the footer is checked against the body and the URL)."""
+    return {"url": url, "content": web_page(url, head=1, tail=1, total=10_000), "error": None}
 
 
 def web_turn(*urls):
@@ -160,7 +158,7 @@ def test_callers_keep_their_shape(tmp_path):
 
 
 def test_a_later_follow_up_still_marks_later(tmp_path):
-    saved = "/cache/web/page-0123456789.md"
+    saved = "/home/u/.hermes/cache/web/" + saved_name("https://example.com/a")
     follow = ("read_file", {"path": saved}, json.dumps({"content": "the middle", "total_lines": 3}))
     out = replay(tmp_path, [web_turn("https://example.com/a"), [follow]])
     record = out["rules"]["web_extract.head_tail_truncation"][0]

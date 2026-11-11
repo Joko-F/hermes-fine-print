@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from .cards import decide, mark_surfaced
-from .engine import Call, CommitRow, Obs, Registry, ToolEvent, fetched_nothing
+from .engine import Call, CommitRow, Obs, Registry, ToolEvent, failed_targets, fetched_nothing
 from .signals import decode_stored, json_object, short_hash, strip_untrusted
 
 MAX_SECONDS = 25.0
@@ -209,12 +209,16 @@ class _Session:
         tool = call.tool or tool_name
         inner = strip_untrusted(content)
         obj = json_object(inner)
-        if obj is not None and obj.get("error") and len(obj) <= 2:
-            self.calls[index] = dataclasses.replace(call, ok=False)
-            return
+        # The live hook gets core's status; a stored row does not carry it. Core calls a result an error
+        # when it has a top-level "error" or, for terminal, a non-zero exit code (model_tools.py:669-684,
+        # agent/display.py:1046-1054): the same test here. A failed row is still read by the rules.
+        failed = obj is not None and bool(obj.get("error") or (tool == "terminal" and obj.get("exit_code") not in (None, 0)))
+        targets = failed_targets(tool, obj)
+        if failed or targets:
+            self.calls[index] = dataclasses.replace(call, ok=not failed, failed=targets)
         found = self.registry.run("tool", tool, ToolEvent(tool, call.args, inner, self.sid, "", tcid, replay=True))
-        if fetched_nothing(tool, obj, found):              # the same rule as the live path (core.tool_result)
-            self.calls[index] = dataclasses.replace(call, ok=False)
+        if not failed and fetched_nothing(tool, obj, found):       # as in the live path (core.tool_result)
+            self.calls[index] = dataclasses.replace(self.calls[index], ok=False)
         found += self.registry.run("commit", tool, CommitRow(tool, call.args, content, None, tcid))
         for obs in found:
             obs.call_index = index
@@ -338,7 +342,7 @@ def _lines(rules: dict) -> Iterator[str]:
         yield f"• web_extract was asked for more than 5 URLs {_n(len(r), 'time')}: {_n(dropped, 'URL was', 'URLs were')} never fetched."
     r = rules.get("long-line-clamps")
     if r:
-        whole = [x for x in r if x["numbers"].get("marked", 0) >= x["numbers"].get("lines", 1 << 30)]
+        whole = [x for x in r if x["numbers"].get("cut", x["numbers"].get("marked", 0)) >= x["numbers"].get("lines", 1 << 30)]
         in_turn, ever = _followed(whole)
         yield (f"• read_file returned lines cut at the line-length cap {_n(len(r), 'time')}; in {len(whole):,} of them "
                "every line returned was cut (one-line JSON, minified files)"
