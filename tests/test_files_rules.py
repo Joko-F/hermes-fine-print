@@ -112,15 +112,16 @@ def test_redaction_does_not_turn_a_visible_prefix_length_into_a_guessed_cap():
 def test_spill_path_shapes_and_single_owner_for_a_clamped_read():
     data = json.loads((FIXTURES / "read_file_long_line_clamp.json").read_text())
     ids = {}
-    for path in ("/home/dev/.hermes/cache/spillover/call_1.txt", "~/.hermes/cache/spillover/call_1.txt",
+    for path in ("/home/dev/.hermes/cache/spillover/call_1.txt", "~/.hermes/cache/spillover/call_1.txt", "C:\\Users\\dev\\AppData\\Local\\hermes\\cache\\spillover\\call_1.txt",
                  "/home/dev/.hermes/cache/spillover/sub/call_1.txt", "/home/dev/cache/spillover-copy/call_1.txt",
                  "/home/dev/notes/cache/spillover/call_1.md", "/home/dev/long_lines.txt"):
         found = REGISTRY.run("tool", "read_file", ToolEvent("read_file", {"path": path}, data["result"]))
         ids[path] = [o.rule_id for o in found]
     assert ids["/home/dev/.hermes/cache/spillover/call_1.txt"] == ["spill-format-dead-end-v0.23"]
     assert ids["~/.hermes/cache/spillover/call_1.txt"] == ["spill-format-dead-end-v0.23"]
+    assert ids["C:\\Users\\dev\\AppData\\Local\\hermes\\cache\\spillover\\call_1.txt"] == ["spill-format-dead-end-v0.23"]
     assert ids["/home/dev/long_lines.txt"] == ["long-line-clamps"]
-    for path in list(ids)[2:5]:
+    for path in list(ids)[3:6]:
         assert ids[path] == ["long-line-clamps"], path
 
 

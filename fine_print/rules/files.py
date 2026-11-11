@@ -14,7 +14,7 @@ from ..signals import basename, safe_label, strip_untrusted
 _CLAMPED_LINE = re.compile(r"^\d+\|(.*)\.\.\. \[truncated\]$", re.M)
 # tools/tool_result_storage.py:26, :36-37, :43-46, :67-72: spill files live in the reserved
 # $HERMES_HOME/cache/spillover directory under a safe name; a "~/" spelling names the same file.
-_SPILL_PATH = re.compile(r"\A(?:/|~/)(?:.*/)?cache/spillover/[A-Za-z0-9_.-]+\.txt\Z")
+_SPILL_PATH = re.compile(r"\A(?:/|~/|[A-Za-z]:/)(?:.*/)?cache/spillover/[A-Za-z0-9_.-]+\.txt\Z")
 # tools/terminal_tool_result.py:190-193, tools/tool_output_truncate.py:15-16.
 _CAPTURE_NOTE = re.compile(
     r"\AOutput exceeded the capture window \(head\+tail shown\)\. "
