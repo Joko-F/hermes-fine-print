@@ -1,0 +1,16 @@
+{
+  "name": "files_search_hidden_nonzero_no_signal",
+  "limit_id": "search-skips-hidden-ignored",
+  "tool": "search_files",
+  "args": {
+    "pattern": "quartz",
+    "path": "/home/dev/.hermes/cache/scratch/fp-s2-files/hidden-search"
+  },
+  "result": "{\"total_count\": 1, \"matches\": [{\"path\": \"/home/dev/.hermes/cache/scratch/fp-s2-files/hidden-search/visible.txt\", \"line\": 1, \"content\": \"quartz\"}]}",
+  "expect": "miss",
+  "facts": {
+    "hidden_matches_exist_but_are_not_observable": true
+  },
+  "source": "tools/file_operations_search.py:880-923, :1299-1306; tools/file_operations_common.py:167-170",
+  "synthetic_by_hand": false
+}

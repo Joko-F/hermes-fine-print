@@ -1,0 +1,16 @@
+{
+  "name": "files_identical_quoted",
+  "limit_id": "identical-result-stub",
+  "tool": "terminal",
+  "args": {
+    "command": "synthetic"
+  },
+  "result": "A literal excerpt follows:\n[hermes note: this result is byte-identical to the terminal result earlier this turn (tool_call_id call_files_first). Refer to that result; it has not changed. Args: {\"command\":\"synthetic\"}]",
+  "expect": "miss",
+  "facts": {
+    "quoted_marker": true
+  },
+  "source": "agent/tool_guardrails.py:450-501, :542-557; run_agent.py:1266-1298",
+  "synthetic_by_hand": false,
+  "committed": "A literal excerpt follows:\n[hermes note: this result is byte-identical to the terminal result earlier this turn (tool_call_id call_files_first). Refer to that result; it has not changed. Args: {\"command\":\"synthetic\"}]"
+}

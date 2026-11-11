@@ -1,0 +1,16 @@
+{
+  "name": "files_spill_read_pageable",
+  "limit_id": "spill-format-dead-end-v0.23",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/.hermes/cache/scratch/fp-s2-files/cache/spillover/files_spill_pageable.txt"
+  },
+  "result": "{\"content\": \"1|{\\n2|  \\\"rows\\\": [\\n3|    \\\"alpha\\\",\\n4|    \\\"beta\\\",\\n5|    \\\"gamma\\\"\\n6|  ]\\n7|}\", \"total_lines\": 7, \"file_size\": 56, \"truncated\": false, \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "expect": "miss",
+  "facts": {
+    "physical_lines": 7,
+    "original_chars": 56
+  },
+  "source": "tools/tool_result_storage.py:282-320, :395-436; tools/file_operations.py:488-502",
+  "synthetic_by_hand": false
+}

@@ -1,0 +1,16 @@
+{
+  "name": "files_code_timeout",
+  "limit_id": "execute-code-timeout-call-cap",
+  "tool": "execute_code",
+  "args": {
+    "code": "synthetic cell"
+  },
+  "result": "{\"status\": \"timeout\", \"output\": \"⏰ Cell timed out after 300s; the session kernel was killed and its state was lost. The next execute_code call starts a fresh kernel.\", \"exit_code\": -1, \"tool_calls_made\": 0, \"duration_seconds\": 0.03, \"kernel\": {\"mode\": \"session\", \"reused\": true, \"execution_count\": 1, \"state_reset\": false}, \"stdout_truncated\": false, \"stdout_bytes_captured\": 0, \"stdout_bytes_total\": 0, \"stdout_bytes_omitted\": 0, \"error\": \"Cell timed out after 300s; the session kernel was killed and its state was lost. The next execute_code call starts a fresh kernel.\"}",
+  "expect": "hit",
+  "facts": {
+    "formatter_called_without_spawning_kernel": true,
+    "kernel_state_reset": false
+  },
+  "source": "tools/code_kernel.py:738-780; tools/code_execution_rpc.py:87-117",
+  "synthetic_by_hand": false
+}

@@ -1,0 +1,16 @@
+{
+  "name": "files_identical_first",
+  "limit_id": "identical-result-stub",
+  "tool": "terminal",
+  "args": {
+    "command": "synthetic"
+  },
+  "result": "synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output ",
+  "expect": "miss",
+  "facts": {
+    "call": 1
+  },
+  "source": "agent/tool_guardrails.py:450-501, :542-557; run_agent.py:1266-1298",
+  "synthetic_by_hand": false,
+  "committed": "synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output "
+}
