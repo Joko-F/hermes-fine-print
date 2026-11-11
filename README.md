@@ -11,6 +11,8 @@ makes them visible the moment they shape an answer.
 
 ![A Fine Print card in the Hermes TUI](docs/card.png)
 
+![An agent loads 22 images, the request carries 14: the model says what it could not see, the card says why](docs/demo.gif)
+
 ## What the author's own history says
 
 The detectors were replayed over the author's own Hermes history: 103,603 tool results in 1,109
@@ -52,6 +54,8 @@ counted independently by a probe plugin:
     Fix: Hardcoded in v0.23.0. Ask the agent to load the needed image again, using region crops to keep it small.
   details: /limits
   ```
+
+  ![The image card in the Hermes TUI](docs/images-card.png)
 - **An attached image becomes text.** With `auxiliary.vision.model` set, an image attached in the CLI
   reached the model as a helper model's description; the request carried no image part. With the same
   setting, 22 `vision_analyze` calls put no pixels into the conversation at all.
@@ -104,6 +108,10 @@ tells the model (the web footer, the image scale note) Fine Print adds nothing.
 | `/limits explain <id>` | what happens, the threshold, who Hermes tells, the fix, upstream issues |
 | `/limits self-test` | every detector with its honest status and error count |
 | `/limits mute <id>`, `/limits notes on\|off`, `/limits sheet on\|off`, `/limits cards auto\|on\|off` | switches |
+
+![The history report as one page: limits by number of hits, with what the model did next](docs/report.png)
+
+*`/limits report html` over the author's own history (aggregates only; the page goes on with the report's sentences).*
 
 **4. A limits sheet** of under 1,000 characters in the system prompt of new sessions, for facts a model
 cannot be told per call (a tool result with images cannot be annotated without dropping the images).
