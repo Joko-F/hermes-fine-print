@@ -7,6 +7,7 @@ are recognised by the block at their start. Live cards and this report share eve
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import sqlite3
 import statistics
@@ -16,7 +17,7 @@ from typing import Any, Callable, Iterator, Optional
 
 from .cards import PER_SESSION_CARDS_PER_RULE
 from .engine import Call, CommitRow, Obs, Registry, ToolEvent
-from .signals import short_hash, strip_untrusted
+from .signals import decode_stored, json_object, short_hash, strip_untrusted
 
 MAX_SECONDS = 25.0
 
@@ -71,19 +72,24 @@ def scan(registry: Registry, db_path: Path, since_ts: float, *, deadline: Option
     conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=2.0)
     out: dict[str, Any] = {"rules": {}, "sessions": 0, "turns": 0, "tool_rows": 0, "tool_turns": 0,
                            "card_turns": 0, "cards": 0, "partial": False}
+    if deadline is not None:
+        # stop SQLite itself when the time budget is spent, also in the middle of one long session
+        conn.set_progress_handler(lambda: 1 if time.time() > deadline else 0, 20_000)
     try:
         cur = conn.execute(sql, (*tools, since_ts))
         session: Optional[str] = None
         state = _Session(registry, out, on_obs)
+        rows = 0
         for sid, mid, role, tcid, tool_calls, tool_name, content in cur:
+            rows += 1
+            if deadline is not None and rows % 500 == 0 and time.time() > deadline:
+                out["partial"] = True
+                break
             if sid != session:
                 state.close_session()
                 session = sid
                 state = _Session(registry, out, on_obs, sid)
                 out["sessions"] += 1
-                if deadline is not None and time.time() > deadline:
-                    out["partial"] = True
-                    break
             if role == "user":
                 state.close_turn()
             elif role == "assistant":
@@ -92,6 +98,10 @@ def scan(registry: Registry, db_path: Path, since_ts: float, *, deadline: Option
                 out["tool_rows"] += 1
                 state.tool_row(mid, str(tcid or ""), str(tool_name or ""), content)
         state.close_session()
+    except sqlite3.OperationalError:
+        if deadline is None or time.time() <= deadline:
+            raise
+        out["partial"] = True                # interrupted by the progress handler
     finally:
         conn.close()
     return out
@@ -117,9 +127,16 @@ class _Session:
             index = len(self.calls) - 1
         if not isinstance(content, str):
             return
+        content = decode_stored(content)     # a list of parts is stored as "\x00json:" + JSON
+        if not isinstance(content, str):
+            return
         call = self.calls[index]
         tool = call.tool or tool_name
         inner = strip_untrusted(content)
+        obj = json_object(inner)
+        if obj is not None and obj.get("error") and len(obj) <= 2:
+            self.calls[index] = dataclasses.replace(call, ok=False)
+            return
         found = self.registry.run("tool", tool, ToolEvent(tool, call.args, inner, self.sid, "", tcid, replay=True))
         found += self.registry.run("commit", tool, CommitRow(tool, call.args, content, None, tcid))
         for obs in found:
@@ -183,31 +200,42 @@ def _lines(rules: dict) -> Iterator[str]:
         in_turn, ever = _followed(r)
         yield (f"• web_extract cut {len(r):,} pages to head + tail: the model saw a median "
                f"{round(statistics.median(pct))}% of a page ({_share(sum(1 for p in pct if p < 50), len(r))} of "
-               f"pages under half). It went back for the middle in {_share(in_turn, len(r))} within the turn "
-               f"({_share(ever, len(r))} by the end of the session).")
+               f"pages under half). A follow-up read of the rest was seen for {_share(in_turn, len(r))} within "
+               f"the turn ({_share(ever, len(r))} by the end of the session).")
     r = rules.get("native-embed-downscale-1568")
     if r:
         ratios = [x["numbers"]["ratio"] for x in r]
         in_turn, ever = _followed(r)
         yield (f"• {len(r):,} images were downscaled before the model saw them: median "
-               f"{statistics.median(ratios):g}x fewer pixels (max {max(ratios):g}x). It zoomed in with a "
-               f"region crop in {_share(in_turn, len(r))} within the turn ({_share(ever, len(r))} by session end).")
+               f"{statistics.median(ratios):g}x fewer pixels (max {max(ratios):g}x). A region zoom on the same "
+               f"image followed for {_share(in_turn, len(r))} within the turn ({_share(ever, len(r))} by session "
+               "end). Rows stored without their scale note are not counted.")
     r = rules.get("web_search.rescue_nested_error")
     if r:
-        empty = sum(1 for x in r if x["numbers"].get("results") == 0)
-        yield (f"• web_search was answered by the keyless free tier instead of the configured backend "
-               f"{len(r):,} times" + (f" ({empty} of them came back empty)" if empty else "") + ".")
+        keyless = [x for x in r if x["numbers"].get("kind") != "managed"]
+        managed = len(r) - len(keyless)
+        empty = sum(1 for x in keyless if x["numbers"].get("results") == 0)
+        if keyless:
+            yield (f"• web_search was answered by the keyless free tier instead of the configured backend "
+                   f"{len(keyless):,} times" + (f" ({empty} of them came back empty)" if empty else "") + ".")
+        if managed:
+            yield f"• web_search fell back from the managed primary backend to the managed fallback {managed:,} times."
     r = rules.get("search-files-silent-page-cap")
     if r:
         in_turn, ever = _followed(r)
-        yield (f"• search_files returned a full page with no 'more' flag {len(r):,} times; the search was "
-               f"continued in {_share(ever, len(r))}.")
+        yield (f"• search_files returned a full page with no 'more' flag {len(r):,} times; the same search was "
+               f"continued for {_share(ever, len(r))}.")
     r = rules.get("tool_result.spill_trap")
     if r:
         in_turn, ever = _followed(r)
-        lost = sum(1 for x in r if x["numbers"].get("lost"))
-        yield (f"• {len(r):,} tool results were replaced by a short preview and a saved file; the model opened "
-               f"the file in {_share(ever, len(r))}" + (f"; {lost} could not be saved at all" if lost else "") + ".")
+        saved = [x for x in r if not x["numbers"].get("lost")]
+        lost = len(r) - len(saved)
+        opened = sum(1 for x in saved if x["recovered"] or x["later"])
+        if saved:
+            yield (f"• {len(saved):,} tool results were replaced by a short preview and a saved file; a read of "
+                   f"the file followed for {_share(opened, len(saved))}.")
+        if lost:
+            yield f"• {lost:,} tool results were cut inline with nothing saved."
     r = rules.get("web_extract.url_cap_5")
     if r:
         dropped = sum(x["numbers"]["dropped"] for x in r)

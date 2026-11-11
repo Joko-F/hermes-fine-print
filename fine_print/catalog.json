@@ -14,7 +14,7 @@
       "told_detail": "Model sees the stubs; the CLI shows 'Compacting context' lines with no numbers or list of what was lost.",
       "config_key": "compression.protect_last_n",
       "fix": "Raise compression.protect_last_n (20 messages by default) or compression.min_tail_user_messages, or run /compress with a focus topic before switching tasks.",
-      "applies": "next call",
+      "applies": "",
       "issues": [
         "#125019",
         "#136542"
@@ -39,7 +39,7 @@
       "told_detail": "User sees 'Compression summary failed ... fallback context marker'; the model sees a note about the fallback but not the size of the loss.",
       "config_key": "compression.abort_on_summary_failure",
       "fix": "`hermes config set compression.abort_on_summary_failure true` stops compaction instead of replacing the middle of the conversation with the skeleton.",
-      "applies": "next call",
+      "applies": "next session",
       "issues": [
         "#107516",
         "#125019",
@@ -65,7 +65,7 @@
       "told_detail": "The model sees the stubs and summary sections; the user sees only 'Context compaction complete'.",
       "config_key": "compression.tail_mode",
       "fix": "`hermes config set compression.tail_mode legacy` keeps a bigger verbatim tail, at the cost of more tokens.",
-      "applies": "next call",
+      "applies": "",
       "issues": [],
       "code_refs": [
         "agent/context_compressor.py:925-934",
@@ -592,12 +592,12 @@
       "kind": "SAW",
       "driver": "tool",
       "detect": "live",
-      "what": "Any image the model loads through a tool is re-encoded before it enters history. The long edge is capped at 1568 px and the data URL at vision.embed_target_bytes. Resizing works by halving, so 3840x2160 becomes 960x540. PNG is forced to JPEG.",
+      "what": "An image the model loads through a tool is re-encoded before it enters history when its long edge is over 1568 px or its data URL is over vision.embed_target_bytes. Resizing works by halving, so 3840x2160 becomes 960x540. PNG is turned into JPEG when it is re-encoded.",
       "threshold": "Long edge over 1568 px; data URL over 262144 B by default",
       "told": "model",
       "told_detail": "A note with a scale factor when dimensions change; no note when only JPEG quality drops.",
       "config_key": "vision.embed_target_bytes",
-      "fix": "`hermes config set vision.embed_target_bytes 4194304` raises the byte budget to its documented maximum. The 1568 px edge stays; for detail, ask the agent to use vision_analyze with region=[x1,y1,x2,y2].",
+      "fix": "`hermes config set vision.embed_target_bytes 4194304` raises the byte budget to its documented maximum. The 1568 px edge stays; for detail, ask the agent to use vision_analyze with region=[x1,y1,x2,y2] and check the scale note of the crop.",
       "applies": "",
       "issues": [
         "#45071",
@@ -1085,7 +1085,7 @@
       "told_detail": "Autoraise shows a one-time notice; the 0.75 floor is never announced.",
       "config_key": "compression.threshold_tokens",
       "fix": "Set compression.threshold_tokens (an absolute token count, lower-only) to compact earlier than the floor. Setting compression.codex_gpt55_autoraise to false opts out of the 0.85 autoraise.",
-      "applies": "next call",
+      "applies": "",
       "issues": [
         "#66177",
         "#87943",
