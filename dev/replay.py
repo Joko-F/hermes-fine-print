@@ -14,12 +14,14 @@ import argparse
 import random
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fine_print import rules  # noqa: E402,F401
 from fine_print.engine import REGISTRY  # noqa: E402
+from fine_print.export import report_html  # noqa: E402
 from fine_print.report import render_report, scan  # noqa: E402
 
 
@@ -29,6 +31,7 @@ def main() -> int:
     ap.add_argument("--days", type=int, default=3650)
     ap.add_argument("--samples", type=int, default=0, help="random hits per rule to print (metadata only)")
     ap.add_argument("--seed", type=int, default=7)
+    ap.add_argument("--html", metavar="PATH", help="also write the report as one self-contained HTML page")
     args = ap.parse_args()
 
     samples: dict[str, list] = {}
@@ -62,6 +65,11 @@ def main() -> int:
         print(f"\nsamples · {rule_id}")
         for row in rows:
             print("  ", row)
+    if args.html:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+        path = Path(args.html).expanduser()
+        path.write_text(report_html(result, args.days, generated_at=stamp), encoding="utf-8")
+        print(f"\nhtml: {path}")
     return 0
 
 
