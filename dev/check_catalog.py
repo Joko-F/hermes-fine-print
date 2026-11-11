@@ -21,7 +21,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = ROOT / "fine_print" / "catalog.json"
 
-EXPECTED_COUNT = 75
+EXPECTED_COUNT = 80
 TOPICS = {"images", "web", "files", "tools", "context", "model", "settings"}
 KINDS = {"SAW", "MISSING", "SWAPPED", "SETTINGS", "FORGOT"}
 DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "turn", "session",

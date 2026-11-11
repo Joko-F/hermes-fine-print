@@ -27,6 +27,48 @@
       ]
     },
     {
+      "id": "cron-context-from-8000-clip",
+      "title": "Cron context_from output is clipped to 8,000 chars (head+tail)",
+      "topic": "context",
+      "kind": "SAW",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "When a cron job uses context_from (another job's output, or 'self' for its own last run), the injected text is cut to 8,000 chars: the first 4,000 and the last 4,000, with a marker '[... N chars omitted ...]' in the middle. The middle of a long report never reaches the model, so the job may repeat or miss what the earlier run found.",
+      "threshold": "Injected output over 8,000 chars (4,000 head + 4,000 tail)",
+      "told": "model",
+      "told_detail": "The model sees an inline omitted-chars marker. The user gets no notice; the full run output stays in the cron output folder.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Have the upstream job end with a short summary (it is the tail that survives), or write full results to a file and tell the downstream job to read_file it.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "cron/scheduler_prompt.py:54",
+        "cron/scheduler_prompt.py:130-136",
+        "cron/scheduler_prompt.py:187-193"
+      ]
+    },
+    {
+      "id": "cron-no-project-context-without-workdir",
+      "title": "Cron jobs without a workdir ignore AGENTS.md and project files",
+      "topic": "context",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "A scheduled job runs with skip_context_files = not workdir. Unless the job has a workdir set, AGENTS.md, .cursorrules and the other project context files are not loaded. Only SOUL.md and memory are. Rules you rely on in interactive sessions are silently absent from scheduled runs.",
+      "threshold": "Every cron job whose 'workdir' is empty",
+      "told": "nobody",
+      "told_detail": "No notice to the user or the model; the code comment is the only disclosure.",
+      "config_key": null,
+      "fix": "Set a workdir on the job (ask the agent to update the cron job with workdir=<project path>) or put the needed rules into the job prompt.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "cron/scheduler.py:2507-2510",
+        "agent/system_prompt.py:724-725",
+        "cron/job_definition.py:17"
+      ]
+    },
+    {
       "id": "deterministic-fallback-summary",
       "title": "A failed compaction summary can be replaced by a short skeleton",
       "topic": "context",
@@ -223,6 +265,28 @@
         "agent/context_compressor.py:3384-3394",
         "agent/context_compressor.py:3412-3435",
         "agent/context_compressor.py:3591-3609"
+      ]
+    },
+    {
+      "id": "gateway-text-attachment-100kb-inline",
+      "title": "Chat text files over 100 KB are not shown to the model inline",
+      "topic": "files",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "On Telegram, Discord, Slack, WhatsApp and Feishu, a text-like attachment is pasted into the message only when it is 100 KB (102,400 bytes) or smaller. A larger file, or one that is not valid UTF-8, is only cached to disk and the model gets a note to read it itself. A model that answers without reading answers from the file name alone.",
+      "threshold": "Text attachment over 102,400 bytes (or not UTF-8)",
+      "told": "model",
+      "told_detail": "The model gets a note: content not inlined, read the cached file. The user sees no sign of it.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Split the file below 100 KB, or tell the agent 'read the attached file in full with read_file before answering'.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "plugins/platforms/telegram/adapter.py:6805-6807",
+        "plugins/platforms/discord/adapter.py:6027-6029",
+        "plugins/platforms/slack/adapter.py:4826",
+        "gateway/run.py:2532-2547"
       ]
     },
     {
@@ -1328,6 +1392,48 @@
         "tools/tool_result_storage.py:282-320",
         "tools/tool_result_storage.py:274-279",
         "tools/tool_result_storage.py:364-381"
+      ]
+    },
+    {
+      "id": "stacked-slash-skills-cap-5",
+      "title": "Only the first 5 stacked /skill commands are loaded",
+      "topic": "tools",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "A message such as '/a /b /c /d /e /f do X' loads at most 5 leading skills. The 6th and later tokens stop the scan and become plain instruction text: those skills are not loaded and no error is raised.",
+      "threshold": "More than 5 leading slash-skill commands in one message",
+      "told": "nobody",
+      "told_detail": "No warning to the user or model; the extra '/skill' words just appear in the instruction text.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Send the extra skills in a second message, or ask the agent to load them with skill_view.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/skill_commands.py:859",
+        "agent/skill_commands.py:870-879"
+      ]
+    },
+    {
+      "id": "subagent-no-memory-no-project-context",
+      "title": "Subagents start without memory, AGENTS.md or your conversation",
+      "topic": "tools",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "Every delegate_task child is built with skip_context_files=True and skip_memory=True. It sees no MEMORY.md or USER.md, no AGENTS.md or other project context files, and none of the parent's history. Only the goal and the 'context' text the parent writes reach it. The parent model is told the child knows nothing of the conversation, but not that rules in AGENTS.md or memory are absent.",
+      "threshold": "Always, for every child; only profile-routed children load their profile's SOUL.md",
+      "told": "model",
+      "told_detail": "The delegate_task description says children know nothing of the conversation. Nothing says project rules and memory are also missing. The user is told nothing.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to copy the rules and facts a child needs (AGENTS.md conventions, memory entries, language, style) into the 'context' field of each delegate_task call.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/delegate_tool.py:293-298",
+        "agent/system_prompt.py:724-725",
+        "agent/agent_init.py:1234",
+        "tools/delegate_tool.py:719-720"
       ]
     },
     {
