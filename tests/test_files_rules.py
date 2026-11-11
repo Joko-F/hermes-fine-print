@@ -1,0 +1,109 @@
+"""FILES recovery and severity checks that the single-event fixtures cannot express."""
+
+import json
+from pathlib import Path
+
+from fine_print.cards import TEXT
+from fine_print.engine import REGISTRY, Call, CommitRow, ToolEvent
+import fine_print.rules  # noqa: F401
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def _fixture_obs(name):
+    data = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+    event = ToolEvent(data["tool"], data["args"], data["result"])
+    return [obs for obs in REGISTRY.run("tool", event.tool, event) if obs.rule_id == data["limit_id"]]
+
+
+def test_long_line_recovery_requires_code_not_another_line_offset():
+    found = _fixture_obs("read_file_long_line_clamp.json")
+    assert len(found) == 1
+    obs = found[0]
+    assert obs.severity == "card"
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000}
+    assert not any(r.satisfied([Call("read_file", {"path": "long_lines.txt", "offset": 2})])
+                   for r in obs.recover)
+    for tool in ("execute_code", "terminal"):
+        assert any(r.satisfied([Call(tool, {"code": "open('long_lines.txt').read()"})])
+                   for r in obs.recover)
+
+
+def test_terminal_window_recovers_only_when_the_saved_log_is_named_later():
+    found = _fixture_obs("terminal_output_window.json")
+    assert len(found) == 1
+    obs = found[0]
+    assert obs.severity == "card"
+    assert 0 < obs.numbers["shown"] < obs.numbers["total"]
+    data = json.loads((FIXTURES / "terminal_output_window.json").read_text())
+    saved = json.loads(data["result"])["full_output_path"]
+    assert any(r.satisfied([Call("search_files", {"path": saved, "pattern": "error"})]) for r in obs.recover)
+    assert not any(r.satisfied([Call("write_file", {"path": saved, "content": "replacement"})]) for r in obs.recover)
+    assert not any(r.satisfied([Call("terminal", {"command": "same command again"})]) for r in obs.recover)
+
+
+def test_spill_read_has_one_owner_and_offset_retry_cannot_recover_it():
+    data = json.loads((FIXTURES / "spill_json_dead_end_read.json").read_text())
+    event = ToolEvent("read_file", data["args"], data["result"])
+    found = REGISTRY.run("tool", "read_file", event)
+    assert [o.rule_id for o in found] == ["spill-format-dead-end-v0.23"]
+    obs = found[0]
+    assert obs.severity == "card"
+    for tool in ("read_file", "search_files"):
+        assert not any(r.satisfied([Call(tool, {"path": data["args"]["path"], "offset": 2})]) for r in obs.recover)
+    assert any(r.satisfied([Call("execute_code", {"code": repr(data["args"]["path"])})]) for r in obs.recover)
+
+
+def test_kernel_timeout_is_digest_and_fresh_execution_cannot_restore_lost_state():
+    found = _fixture_obs("files_code_timeout.json")
+    assert len(found) == 1
+    assert found[0].severity == "digest"
+    assert found[0].recover == ()
+    assert found[0].numbers == {"timeout": 300}
+
+
+def test_identical_result_stub_is_commit_only_and_informational():
+    data = json.loads((FIXTURES / "files_identical_second.json").read_text())
+    assert not REGISTRY.run("tool", "terminal", ToolEvent("terminal", data["args"], data["result"]))
+    row = CommitRow("terminal", data["args"], data["committed"], len(data["result"]))
+    found = [o for o in REGISTRY.run("commit", "terminal", row) if o.rule_id == data["limit_id"]]
+    assert len(found) == 1
+    assert found[0].severity == "digest"
+    assert not found[0].recover
+    assert found[0].numbers["total"] == len(data["result"])
+
+
+def test_unchanged_stub_is_digest_without_claiming_the_earlier_read_was_spilled():
+    found = _fixture_obs("files_read_dedup_second.json")
+    assert len(found) == 1
+    obs = found[0]
+    assert obs.severity == "digest"
+    assert obs.note is None
+    line, fix = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
+    assert "0 content chars" in line
+    assert "spilled" not in line
+    assert "different limit" in fix
+
+
+def test_hidden_match_probe_is_digest_and_reports_only_the_probed_subset():
+    found = _fixture_obs("files_search_hidden_probe.json")
+    assert len(found) == 1
+    assert found[0].severity == "digest"
+    assert found[0].numbers == {"shown": 0, "probe_matches": 2, "probe_files": 1}
+
+
+def test_foreground_timeout_is_digest_not_a_capture_loss_card():
+    found = _fixture_obs("files_terminal_timeout.json")
+    assert len(found) == 1
+    assert found[0].severity == "digest"
+    assert not found[0].recover
+    assert found[0].numbers == {"kind": "timeout", "timeout": 1}
+
+
+def test_redaction_does_not_turn_a_visible_prefix_length_into_a_guessed_cap():
+    found = _fixture_obs("files_long_line_redacted.json")
+    assert len(found) == 1
+    obs = found[0]
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000}
+    line, _ = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
+    assert "prefix" in line and "cut at" not in line

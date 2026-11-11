@@ -1,0 +1,15 @@
+{
+  "name": "files_read_dedup_quoted",
+  "limit_id": "read-dedup-stub-after-spill",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/.hermes/cache/scratch/fp-s2-files/quoted_unchanged.txt"
+  },
+  "result": "{\"content\": \"1|File unchanged since last read. The content from the earlier read_file result in this conversation is still current — refer to that instead of re-reading.\", \"total_lines\": 1, \"file_size\": 156, \"truncated\": false, \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "expect": "miss",
+  "facts": {
+    "message_appears_only_in_file_content": true
+  },
+  "source": "tools/file_tools.py:501-531, :668-683; tools/file_tools_write_guards.py:554-557",
+  "synthetic_by_hand": false
+}

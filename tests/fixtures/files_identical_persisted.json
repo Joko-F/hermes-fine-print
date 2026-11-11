@@ -1,0 +1,16 @@
+{
+  "name": "files_identical_persisted",
+  "limit_id": "identical-result-stub",
+  "tool": "terminal",
+  "args": {
+    "command": "synthetic"
+  },
+  "result": "synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output synthetic output ",
+  "expect": "hit",
+  "facts": {
+    "call": 3
+  },
+  "source": "agent/tool_guardrails.py:450-501, :542-557; run_agent.py:1266-1298",
+  "synthetic_by_hand": false,
+  "committed": "[hermes note: this result is byte-identical to the terminal result earlier this turn (tool_call_id call_files_first). Refer to that result; it has not changed. Args: {\"command\":\"synthetic\"}]\n[The referenced result was persisted to: /home/dev/.hermes/cache/spillover/files_first.txt — page through it with read_file if you need the full content.]\n\n[hermes note: this is the 3rd consecutive identical call to terminal with identical arguments returning the same result. Do not repeat it — change arguments, use a different tool, or proceed with what you have.]"
+}

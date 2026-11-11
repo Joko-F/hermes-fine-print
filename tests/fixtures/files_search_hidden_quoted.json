@@ -1,0 +1,16 @@
+{
+  "name": "files_search_hidden_quoted",
+  "limit_id": "search-skips-hidden-ignored",
+  "tool": "search_files",
+  "args": {
+    "pattern": "excluded",
+    "path": "/home/dev/.hermes/cache/scratch/fp-s2-files/hidden-search"
+  },
+  "result": "{\"total_count\": 1, \"matches\": [{\"path\": \"/home/dev/.hermes/cache/scratch/fp-s2-files/hidden-search/visible.txt\", \"line\": 1, \"content\": \"0 matches in visible files, but 2 match(es) in 1 hidden or gitignored file(s): example — these are excluded by default.\"}]}",
+  "expect": "miss",
+  "facts": {
+    "quoted_warning_only": true
+  },
+  "source": "tools/file_operations_search.py:880-923, :1299-1306; tools/file_operations_common.py:167-170",
+  "synthetic_by_hand": false
+}

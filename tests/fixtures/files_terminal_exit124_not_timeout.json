@@ -1,0 +1,16 @@
+{
+  "name": "files_terminal_exit124_not_timeout",
+  "limit_id": "terminal-capture-window-and-timeout",
+  "tool": "terminal",
+  "args": {
+    "command": "sh -c 'printf synthetic; exit 124'",
+    "workdir": "/home/dev/.hermes/cache/scratch/fp-s2-files"
+  },
+  "result": "{\"output\": \"synthetic\", \"exit_code\": 124, \"error\": null, \"approval\": \"Command was flagged (shell command via -c/-lc flag) and auto-approved by smart approval.\", \"hint\": \"Exit 124: the command hit its timeout. Raise timeout= (foreground max 600s) or run it with background=true and notify_on_complete=true.\"}",
+  "expect": "miss",
+  "facts": {
+    "command_chose_124": true
+  },
+  "source": "tools/environments/base.py:569-576, :769-776; tools/terminal_tool_result.py:227-278",
+  "synthetic_by_hand": false
+}

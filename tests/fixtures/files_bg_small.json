@@ -1,0 +1,17 @@
+{
+  "name": "files_bg_small",
+  "limit_id": "bg-process-rolling-200k",
+  "tool": "process",
+  "args": {
+    "action": "log",
+    "session_id": "proc_files_small",
+    "offset": 0
+  },
+  "result": "{\"session_id\": \"proc_files_small\", \"command\": \"synthetic\", \"status\": \"running\", \"output\": \"alpha\\nbeta\", \"total_lines\": 2, \"showing\": \"2 lines\"}",
+  "expect": "miss",
+  "facts": {
+    "chars_dropped": 0
+  },
+  "source": "tools/process_registry.py:636-640, :2017-2045",
+  "synthetic_by_hand": false
+}

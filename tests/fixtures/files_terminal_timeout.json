@@ -1,0 +1,17 @@
+{
+  "name": "files_terminal_timeout",
+  "limit_id": "terminal-capture-window-and-timeout",
+  "tool": "terminal",
+  "args": {
+    "command": "sleep 2",
+    "timeout": 1,
+    "workdir": "/home/dev/.hermes/cache/scratch/fp-s2-files"
+  },
+  "result": "{\"output\": \"[Command timed out after 1s]\", \"exit_code\": 124, \"error\": null, \"hint\": \"Exit 124: the command hit its timeout. Raise timeout= (foreground max 600s) or run it with background=true and notify_on_complete=true.\"}",
+  "expect": "hit",
+  "facts": {
+    "timeout": 1
+  },
+  "source": "tools/environments/base.py:569-576, :769-776; tools/terminal_tool_result.py:227-278",
+  "synthetic_by_hand": false
+}
