@@ -89,9 +89,14 @@ def register(ctx: Any) -> None:
     # commit driver: one card per turn; on_session_end also closes failed or interrupted turns
     ctx.register_hook("post_llm_call", observer(fp.turn_end))
     ctx.register_hook("on_session_end", observer(fp.turn_end))
+    # wire driver: what goes into a request compared with the conversation (image parts by count and size)
+    ctx.register_hook("pre_api_request", observer(fp.api_request))
+    ctx.register_hook("api_request_error", observer(fp.api_error))
+    # route driver: the user message as a turn starts (an observer: it returns nothing, so it injects nothing)
+    ctx.register_hook("pre_llm_call", observer(fp.user_turn))
     # response driver: finish reason and token counts of each provider response
     ctx.register_hook("post_api_request", observer(fp.api_response))
-    # compaction driver: what a committed compaction replaced, and whether its summary call failed
+    # compaction and aux drivers: a committed compaction, whether its summary call failed, helper-model calls
     ctx.register_hook("post_auxiliary_call", observer(fp.aux_call))
     ctx.register_hook("post_compaction", observer(fp.compaction))
     # bookkeeping

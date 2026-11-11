@@ -13,6 +13,9 @@ provides_hooks:
   - transform_tool_result
   - post_llm_call
   - on_session_end
+  - pre_llm_call
+  - pre_api_request
+  - api_request_error
   - post_api_request
   - post_auxiliary_call
   - post_compaction

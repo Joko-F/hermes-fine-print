@@ -16,8 +16,9 @@ from typing import Any, Callable, Optional, Protocol
 from . import constants as C
 from . import rules  # noqa: F401  (registers the detectors)
 from .cards import decide, mark_surfaced, render
-from .engine import (REGISTRY, ApiEvent, Call, CommitRow, CompactionEvent, Obs, Registry, ToolEvent, TurnBuffer,
-                     TurnEvent, TurnState, annotate, fetched_nothing, fetched_urls)
+from .engine import (REGISTRY, ApiErrorEvent, ApiEvent, AuxEvent, Call, CommitRow, CompactionEvent, Obs, Registry,
+                     SessionEvent, ToolEvent, TurnBuffer, TurnEvent, TurnState, UserTurnEvent, WireEvent, annotate,
+                     fetched_nothing, fetched_urls)
 from .ledger import Ledger
 
 logger = logging.getLogger("fine_print")
@@ -40,6 +41,21 @@ def _put(mapping: dict, key: str, value: Any) -> None:
     mapping[key] = value
 
 
+def _tool_names(request: Any) -> tuple:
+    """Names of the tools listed in a request payload as the hook passes it (``request["body"]["tools"]``,
+    chat or Responses shape); () when the payload does not list them."""
+    body = request.get("body") if isinstance(request, dict) else None
+    tools = body.get("tools") if isinstance(body, dict) else None
+    names = []
+    for tool in tools if isinstance(tools, list) else ():
+        if isinstance(tool, dict):
+            fn = tool.get("function")
+            name = fn.get("name") if isinstance(fn, dict) else tool.get("name")
+            if isinstance(name, str) and name:
+                names.append(name[:80])
+    return tuple(names[:200])
+
+
 def _truthy(value: Any, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
@@ -57,7 +73,10 @@ class FinePrint:
         self.child_hits: dict[str, int] = {}       # parent session -> unrecovered hits in its subagents
         self.pending: dict[str, list[Obs]] = {}    # session -> observations waiting for a turn to close
         self.context_length: dict[str, int] = {}   # session -> context window in tokens, from responses
+        self.models: dict[str, str] = {}           # session -> its own model, from responses
         self._summary_calls: dict[str, tuple] = {} # session -> (time, ok) of its last compression aux call
+        self.session_facts: dict[str, dict] = {}   # session -> facts of its first request, until the session check ran
+        self._session_checked: dict[str, bool] = {}  # sessions whose once-per-session rules have run
         self._side_lock = threading.Lock()
         self.stats = {"hooks": 0, "errors": 0, "cards": 0, "notes": 0}
 
@@ -173,6 +192,101 @@ class FinePrint:
         st.obs.extend(waiting)
         return self._close(st, conversation_history, str(platform or ""), str(model or ""), post=True)
 
+    # ── observers without a tool call (wire, api_error, route, aux, session) ───────────────────────
+    def _attach(self, session_id: str, turn_id: str, found: list[Obs]) -> None:
+        """Add observations that belong to no tool call to the turn. A request-level fact repeats on
+        every request of a turn, so one (rule, cause) is kept once per turn."""
+        if not found or not turn_id:
+            return
+        st = self.buffer.get(session_id, turn_id)
+        with self.buffer.lock():
+            while st.merged_into is not None:
+                st = st.merged_into
+            have = {(o.rule_id, o.cause) for o in st.obs}
+            for obs in found:
+                if (obs.rule_id, obs.cause) not in have:
+                    have.add((obs.rule_id, obs.cause))
+                    st.obs.append(obs)
+
+    def api_request(self, session_id: str = "", turn_id: str = "", conversation_history: Any = None,
+                    request_messages: Any = None, model: str = "", provider: str = "", api_mode: str = "",
+                    api_call_count: Any = 0, retry_count: Any = 0, tool_count: Any = 0,
+                    approx_input_tokens: Any = 0, request_char_count: Any = 0, max_tokens: Any = None,
+                    system_prompt: Any = None, platform: str = "", request: Any = None, **_: Any) -> None:
+        """One request about to be sent. Rules see the two message lists by reference and read
+        structure and sizes only; nothing of a request is kept beyond the turn's counters."""
+        self.stats["hooks"] += 1
+        if not turn_id:
+            return                       # background forks send requests without a user turn
+
+        def _count(value: Any) -> int:
+            return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+        ev = WireEvent(str(model or ""), str(provider or ""), str(api_mode or ""),
+                       conversation_history if isinstance(conversation_history, list) else [],
+                       request_messages if isinstance(request_messages, list) else [],
+                       _count(api_call_count), _count(retry_count), _count(tool_count), _count(approx_input_tokens),
+                       _count(request_char_count), max_tokens if isinstance(max_tokens, int) else None,
+                       len(system_prompt) if isinstance(system_prompt, str) else 0)
+        session_id = self.buffer.canonical(str(session_id or ""))
+        with self._side_lock:
+            if session_id and session_id not in self._session_checked and session_id not in self.session_facts:
+                _put(self.session_facts, session_id, {
+                    "model": ev.model, "provider": ev.provider, "api_mode": ev.api_mode, "platform": str(platform or ""),
+                    "max_tokens": ev.max_tokens, "tool_count": ev.tool_count, "tool_names": _tool_names(request),
+                    "system_prompt_chars": ev.system_prompt_chars})
+        self._attach(session_id, str(turn_id), self.registry.run("wire", "", ev))
+
+    def api_error(self, session_id: str = "", turn_id: str = "", model: str = "", provider: str = "",
+                  api_mode: str = "", status_code: Any = None, retry_count: Any = None, max_retries: Any = None,
+                  retryable: Any = None, reason: Any = None, error: Any = None, api_call_count: Any = 0,
+                  **_: Any) -> None:
+        """One failed provider request: status, retry counters and core's classification, no body."""
+        self.stats["hooks"] += 1
+        if not turn_id:
+            return
+        ev = ApiErrorEvent(str(model or ""), str(provider or ""), str(api_mode or ""),
+                           status_code if isinstance(status_code, int) and not isinstance(status_code, bool) else None,
+                           retry_count if isinstance(retry_count, int) and not isinstance(retry_count, bool) else 0,
+                           max_retries if isinstance(max_retries, int) and not isinstance(max_retries, bool) else None,
+                           retryable if isinstance(retryable, bool) else None, str(reason or ""),
+                           str(error.get("type") or "") if isinstance(error, dict) else "",
+                           api_call_count if isinstance(api_call_count, int) else 0)
+        self._attach(self.buffer.canonical(str(session_id or "")), str(turn_id), self.registry.run("api_error", "", ev))
+
+    def user_turn(self, session_id: str = "", turn_id: str = "", user_message: Any = None,
+                  conversation_history: Any = None, is_first_turn: Any = None, model: str = "",
+                  platform: str = "", parent_session_id: str = "", **_: Any) -> None:
+        """The user message as a turn starts. Returns nothing: this hook may inject context, Fine Print never does."""
+        self.stats["hooks"] += 1
+        session_id = self.buffer.canonical(str(session_id or ""))
+        if session_id and isinstance(is_first_turn, bool):
+            with self._side_lock:
+                facts = self.session_facts.get(session_id)
+                if facts is not None:
+                    facts.setdefault("is_first_turn", is_first_turn)
+                elif session_id not in self._session_checked:
+                    _put(self.session_facts, session_id, {"is_first_turn": is_first_turn})
+        if not turn_id:
+            return
+        ev = UserTurnEvent(user_message, str(model or ""), str(platform or ""), bool(is_first_turn),
+                           bool(parent_session_id), conversation_history if isinstance(conversation_history, list) else [])
+        self._attach(session_id, str(turn_id), self.registry.run("route", "", ev))
+
+    def _session_check(self, session_id: str, ev: ApiEvent) -> list[Obs]:
+        """Run the once-per-session rules after the session's first provider response."""
+        with self._side_lock:
+            if not session_id or session_id in self._session_checked:
+                return []
+            _put(self._session_checked, session_id, True)
+            facts = self.session_facts.pop(session_id, {})
+        sev = SessionEvent(ev.model or facts.get("model", ""), ev.provider or facts.get("provider", ""),
+                           ev.api_mode or facts.get("api_mode", ""), facts.get("platform", ""), ev.context_length,
+                           facts.get("max_tokens"), facts.get("tool_count", 0), facts.get("tool_names", ()),
+                           facts.get("system_prompt_chars", 0), facts.get("is_first_turn"),
+                           session_id in self.parents, self.host.config)
+        return self.registry.run("session", "", sev)
+
     # ── response driver (post_api_request) ─────────────────────────────────────────────────────────
     def api_response(self, session_id: str = "", turn_id: str = "", model: str = "", provider: str = "",
                      response_model: Any = None, finish_reason: Any = None, api_mode: str = "", usage: Any = None,
@@ -186,22 +300,39 @@ class FinePrint:
                       str(api_mode or ""), usage if isinstance(usage, dict) else {},
                       context_length if isinstance(context_length, int) else 0,
                       api_call_count if isinstance(api_call_count, int) else 0)
+        session_id = self.buffer.canonical(str(session_id or ""))
+        if session_id and ev.model:
+            _put(self.models, session_id, ev.model)
         if ev.context_length > 0 and session_id:
-            _put(self.context_length, self.buffer.canonical(str(session_id)), ev.context_length)
+            _put(self.context_length, session_id, ev.context_length)
         found = self.registry.run("response", "", ev)
+        found += self._session_check(session_id, ev)
         if found:
-            st = self.buffer.get(str(session_id or ""), str(turn_id))
+            st = self.buffer.get(session_id, str(turn_id))
             with self.buffer.lock():
                 st.obs.extend(found)
 
     # ── compaction driver (post_auxiliary_call, post_compaction) ───────────────────────────────────
     def aux_call(self, aux_task: str = "", error: Any = None, error_type: Any = None, session_id: str = "",
-                 **_: Any) -> None:
-        """Remember, per session, whether its last compression helper call failed. A call that
-        carries no session (cron, idle work) is not attributed to anybody."""
+                 turn_id: str = "", model: str = "", provider: str = "", message_count: Any = 0,
+                 api_duration: Any = 0.0, **_: Any) -> None:
+        """One finished helper-model call. For compression: remember, per session, whether it failed
+        (a call that carries no session, cron or idle work, is attributed to nobody). Every call
+        with a turn goes to the aux rules, gated by its task."""
+        self.stats["hooks"] += 1
         if aux_task == "compression" and session_id:
             with self._side_lock:
                 _put(self._summary_calls, str(session_id), (time.time(), not (error or error_type)))
+        if not session_id or not turn_id:
+            return
+        session_id = self.buffer.canonical(str(session_id))
+        with self._side_lock:
+            main_model = (self.session_facts.get(session_id) or {}).get("model", "") or self.models.get(session_id, "")
+        ev = AuxEvent(str(aux_task or ""), str(model or ""), str(provider or ""), main_model,
+                      str(error_type or ("error" if error else "")),
+                      message_count if isinstance(message_count, int) else 0,
+                      float(api_duration) if isinstance(api_duration, (int, float)) else 0.0)
+        self._attach(session_id, str(turn_id), self.registry.run("aux", ev.aux_task, ev))
 
     def compaction(self, session_id: str = "", old_session_id: str = "", kind: str = "", reason: str = "",
                    before_tokens: Any = None, after_tokens: Any = None, messages_removed: Any = None,
@@ -224,8 +355,9 @@ class FinePrint:
                         self.parents[child] = session_id
                 if old_session_id in self.child_hits:
                     self.child_hits[session_id] = self.child_hits.get(session_id, 0) + self.child_hits.pop(old_session_id)
-                if old_session_id in self.context_length:
-                    self.context_length[session_id] = self.context_length.pop(old_session_id)
+                for mapping in (self.context_length, self.models, self.session_facts, self._session_checked):
+                    if old_session_id in mapping:
+                        mapping[session_id] = mapping.pop(old_session_id)
         with self._side_lock:
             # the helper call of this compaction ran under this session, before or after the rotation
             calls = [self._summary_calls.pop(sid) for sid in {old_session_id, session_id} if sid in self._summary_calls]
@@ -343,7 +475,8 @@ class FinePrint:
         self.ledger.purge(ids)
         with self._side_lock:
             for sid in ids:
-                for mapping in (self.parents, self.child_hits, self.pending, self.context_length, self._summary_calls):
+                for mapping in (self.parents, self.child_hits, self.pending, self.context_length, self._summary_calls,
+                                self.models, self.session_facts, self._session_checked):
                     mapping.pop(sid, None)
 
 

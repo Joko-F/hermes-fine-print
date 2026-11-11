@@ -117,6 +117,142 @@ class CompactionEvent:
     summarizer_failed: bool = False  # a compression aux call failed just before this compaction
 
 
+_IMAGE_PART_TYPES = frozenset({"image_url", "image", "input_image"})
+
+
+def _image_payload_chars(part: dict) -> int:
+    kind = part.get("type")
+    if kind == "image":                      # Anthropic block: {"source": {"type": "base64", "data": ...}}
+        source = part.get("source")
+        value = (source.get("data") or source.get("url")) if isinstance(source, dict) else None
+    else:                                    # chat: {"image_url": {"url": ...}}; Responses: {"image_url": "..."}
+        value = part.get("image_url")
+        if isinstance(value, dict):
+            value = value.get("url")
+    return len(value) if isinstance(value, str) else 0
+
+
+def image_sizes(messages: Any, depth: int = 3) -> list[int]:
+    """The image parts in a list of messages, in order, as the length of each one's encoded payload
+    (a data URL or base64 block; a remote URL counts by its own length). Reads the three shapes a
+    request can have (chat ``image_url`` parts, Anthropic ``image`` blocks also inside ``tool_result``
+    blocks, Responses ``input_image`` items) and never decodes or copies a payload."""
+    out: list[int] = []
+
+    def walk(parts: list, left: int) -> None:
+        for part in parts:
+            if not isinstance(part, dict):
+                continue
+            if part.get("type") in _IMAGE_PART_TYPES:
+                out.append(_image_payload_chars(part))
+            elif left > 0:
+                for key in ("content", "output"):
+                    inner = part.get(key)
+                    if isinstance(inner, list):
+                        walk(inner, left - 1)
+
+    for message in messages if isinstance(messages, list) else ():
+        if isinstance(message, dict):
+            for key in ("content", "output"):
+                inner = message.get(key)
+                if isinstance(inner, list):
+                    walk(inner, depth)
+    return out
+
+
+@dataclass
+class WireEvent:
+    """What a wire-driver rule sees: one request about to go to the provider (``pre_api_request``).
+    ``history`` is the conversation as Hermes holds it, ``request`` the messages actually sent (already
+    in the provider's shape). Rules read structure and sizes; nothing of either list is stored."""
+    model: str = ""
+    provider: str = ""
+    api_mode: str = ""
+    history: list = field(default_factory=list, repr=False)
+    request: list = field(default_factory=list, repr=False)
+    api_call_count: int = 0          # 1 for the first request of a turn
+    retry_count: int = 0
+    tool_count: int = 0              # tools offered to the model in this request
+    approx_input_tokens: int = 0
+    request_chars: int = 0
+    max_tokens: Optional[int] = None
+    system_prompt_chars: int = 0
+    _history_images: Any = field(default=_UNSET, repr=False, compare=False)
+    _request_images: Any = field(default=_UNSET, repr=False, compare=False)
+
+    @property
+    def history_images(self) -> list[int]:
+        """Payload sizes of the image parts in the conversation, in order (see ``image_sizes``)."""
+        if self._history_images is _UNSET:
+            self._history_images = image_sizes(self.history)
+        return self._history_images
+
+    @property
+    def request_images(self) -> list[int]:
+        """Payload sizes of the image parts in the request, in order."""
+        if self._request_images is _UNSET:
+            self._request_images = image_sizes(self.request)
+        return self._request_images
+
+
+@dataclass
+class ApiErrorEvent:
+    """What an api_error-driver rule sees: one failed provider request (``api_request_error``)."""
+    model: str = ""
+    provider: str = ""
+    api_mode: str = ""
+    status_code: Optional[int] = None
+    retry_count: int = 0
+    max_retries: Optional[int] = None
+    retryable: Optional[bool] = None
+    reason: str = ""                 # core's classification (a FailoverReason name), may be empty
+    error_type: str = ""             # the exception class name
+    api_call_count: int = 0
+
+
+@dataclass
+class UserTurnEvent:
+    """What a route-driver rule sees: the user message as the turn starts (``pre_llm_call``).
+    ``message`` is a string or a list of content parts; nothing of it is stored."""
+    message: Any = None
+    model: str = ""
+    platform: str = ""
+    is_first_turn: bool = False
+    is_subagent: bool = False
+    history: list = field(default_factory=list, repr=False)
+
+
+@dataclass
+class AuxEvent:
+    """What an aux-driver rule sees: one finished helper-model call (``post_auxiliary_call``). Rules
+    are gated by ``aux_task`` the way tool rules are gated by tool name (vision, compression, ...)."""
+    aux_task: str = ""
+    model: str = ""                  # the helper model that served the call
+    provider: str = ""
+    main_model: str = ""             # the session's own model when a request of it was seen, else ""
+    error_type: str = ""             # "" when the call succeeded
+    message_count: int = 0
+    api_duration: float = 0.0
+
+
+@dataclass
+class SessionEvent:
+    """What a session-driver rule sees, once per session, after its first provider response: the
+    effective values Hermes runs with, and ``cfg(dotted_key, default)`` to read what the config asks for."""
+    model: str = ""
+    provider: str = ""
+    api_mode: str = ""
+    platform: str = ""
+    context_length: int = 0          # the window Hermes uses for this session (0 = not reported)
+    max_tokens: Optional[int] = None
+    tool_count: int = 0              # tools offered in the first request
+    tool_names: tuple = ()           # their names when the request payload listed them (at most 200)
+    system_prompt_chars: int = 0
+    is_first_turn: Optional[bool] = None    # False = the session was resumed; None = not known
+    is_subagent: bool = False
+    cfg: Callable[[str, Any], Any] = field(default=lambda key, default: default, repr=False)
+
+
 # ── recovery predicates ────────────────────────────────────────────────────────────────────────────
 def _num(value: Any, default: int) -> int:
     try:
