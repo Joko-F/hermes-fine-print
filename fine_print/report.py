@@ -7,6 +7,7 @@ are recognised by the block at their start. Live cards and this report share eve
 
 from __future__ import annotations
 
+import bisect
 import dataclasses
 import json
 import os
@@ -16,7 +17,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
-from .cards import PER_SESSION_CARDS_PER_RULE
+from .cards import decide, mark_surfaced
 from .engine import Call, CommitRow, Obs, Registry, ToolEvent, fetched_nothing
 from .signals import decode_stored, json_object, short_hash, strip_untrusted
 
@@ -85,17 +86,17 @@ def scan(registry: Registry, db_path: Path, since_ts: float, *, deadline: Option
     try:
         cur = conn.execute(sql, (*tools, since_ts))
         session: Optional[str] = None
-        state = _Session(registry, out, on_obs)
+        state = _Session(registry, out, on_obs, deadline=deadline)
         rows = 0
         for sid, mid, role, tcid, tool_calls, tool_name, content in cur:
             rows += 1
-            if deadline is not None and rows % 500 == 0 and time.time() > deadline:
+            if deadline is not None and rows % 100 == 0 and time.time() > deadline:
                 out["partial"] = True
                 break
             if sid != session:
                 state.close_session()
                 session = sid
-                state = _Session(registry, out, on_obs, sid)
+                state = _Session(registry, out, on_obs, sid, deadline)
                 out["sessions"] += 1
             if role == "user":
                 state.close_turn()
@@ -114,16 +115,83 @@ def scan(registry: Registry, db_path: Path, since_ts: float, *, deadline: Option
     return out
 
 
+# Which later calls can satisfy a Recover of each kind. None = any tool (unknown kind: ask them all).
+_RECOVER_TOOLS = {"region": ("vision_analyze",), "search_more": ("search_files",),
+                  "refetch": ("web_extract",), "refetch_bigger": ("web_extract",)}
+
+
+class _Index:
+    """The successful calls of ``calls[start:]`` by tool, in call order, so a follow-up check looks at
+    the few later calls that could match instead of copying and scanning every later call."""
+
+    def __init__(self, calls: list[Call], start: int = 0) -> None:
+        self.by_tool: dict[str, tuple[list[int], list[Call], list[str]]] = {}
+        for i in range(start, len(calls)):
+            call = calls[i]
+            if call.ok:
+                idxs, items, flats = self.by_tool.setdefault(call.tool, ([], [], []))
+                idxs.append(i)
+                items.append(call)
+                flats.append(call.flat_args())
+
+    def later(self, recover: Any, after: int) -> list[Call]:
+        """Calls after index ``after`` that ``recover`` could be satisfied by (a superset is fine:
+        ``Recover.satisfied`` makes the decision)."""
+        tools = recover.extra if recover.kind == "names" else _RECOVER_TOOLS.get(recover.kind)
+        out: list[Call] = []
+        for tool in (tools if tools is not None else sorted(self.by_tool)):
+            entry = self.by_tool.get(tool)
+            if entry is None:
+                continue
+            idxs, items, flats = entry
+            first = bisect.bisect_right(idxs, after)
+            if recover.kind == "names":
+                key = recover.key
+                out.extend(c for c, f in zip(items[first:], flats[first:]) if key in f)
+            else:
+                out.extend(items[first:])
+        return out
+
+    def followed(self, obs: Obs) -> bool:
+        if obs.call_index < 0:               # the live path: no call, nothing later
+            return False
+        return any(r.satisfied(self.later(r, obs.call_index)) for r in obs.recover)
+
+
 class _Session:
-    def __init__(self, registry: Registry, out: dict, on_obs, sid: str = "") -> None:
+    """One session's replay. The card policy is the live one (``cards.decide`` / ``mark_surfaced``),
+    run once per turn against this session's own state. Assumptions, stated because the result is an
+    estimate: no rule is muted, every card posts successfully, cards are on (local surface), and
+    only tool rows are stored, so response / compaction / wire rules never fire here."""
+
+    CHECK_EVERY = 64                           # observations between deadline checks
+
+    def __init__(self, registry: Registry, out: dict, on_obs, sid: str = "",
+                 deadline: Optional[float] = None) -> None:
         self.registry, self.out, self.on_obs, self.sid = registry, out, on_obs, sid
+        self.deadline = deadline
         self.calls: list[Call] = []            # every call of the session, in order
         self.turn_start = 0
         self.turn_obs: list[tuple[Obs, int]] = []
         self.pending: list[tuple[Obs, dict]] = []   # unrecovered in turn; may be recovered later
-        self.seen: set = set()
-        self.carded: dict[str, int] = {}
+        # what ledger.surfaced_causes / surfaced_counts would return for this session after the live
+        # path recorded the turns so far: (rule, cause hash) with surfaced >= 1; per rule, rows with surfaced == 1
+        self.surfaced_causes: set = set()
+        self.surfaced_counts: dict[str, int] = {}
         self.had_tools = False
+        self._ticks = 0
+
+    def expired(self) -> bool:
+        """True once the deadline has passed; the first check is immediate, then one per CHECK_EVERY."""
+        if self.deadline is None:
+            return False
+        if self.out.get("partial"):
+            return True
+        self._ticks += 1
+        if (self._ticks - 1) % self.CHECK_EVERY == 0 and time.time() > self.deadline:
+            self.out["partial"] = True
+            return True
+        return False
 
     def tool_row(self, mid: int, tcid: str, tool_name: str, content: Any) -> None:
         self.had_tools = True
@@ -156,29 +224,36 @@ class _Session:
         self.out["turns"] += 1
         if self.had_tools:
             self.out["tool_turns"] += 1
-        cards = 0
-        for obs, mid in self.turn_obs:
-            later = self.calls[obs.call_index + 1:]
-            obs.recovered = any(r.satisfied(later) for r in obs.recover)
-            record = {"numbers": obs.numbers, "recovered": obs.recovered, "later": False,
-                      "severity": obs.severity, "subject": obs.subject}
-            self.out["rules"].setdefault(obs.rule_id, []).append(record)
-            if self.on_obs:
-                self.on_obs(self.sid, mid, obs)
-            if not obs.recovered:
-                self.pending.append((obs, record))
-                # the card policy, replayed: verified rule, card severity, a cause not shown before
-                key = (obs.rule_id, short_hash(obs.cause) if obs.cause else "")
-                rule = self.registry.get(obs.rule_id)
-                if (rule is not None and rule.status == "verified" and obs.severity == "card"
-                        and key not in self.seen and self.carded.get(obs.rule_id, 0) < PER_SESSION_CARDS_PER_RULE):
-                    self.seen.add(key)
-                    self.carded[obs.rule_id] = self.carded.get(obs.rule_id, 0) + 1
-                    record["card"] = True
-                    cards += 1
-        if cards:
-            self.out["card_turns"] += 1
-            self.out["cards"] += cards
+        records: list[tuple[Obs, dict]] = []
+        if self.turn_obs and not self.expired():
+            index = _Index(self.calls, self.turn_start)
+            for obs, mid in self.turn_obs:
+                if records and self.expired():        # keep the observations done so far, drop the rest
+                    break
+                obs.recovered = index.followed(obs)
+                record = {"numbers": obs.numbers, "recovered": obs.recovered, "later": False,
+                          "severity": obs.severity, "subject": obs.subject, "card": False}
+                self.out["rules"].setdefault(obs.rule_id, []).append(record)
+                records.append((obs, record))
+                if self.on_obs:
+                    self.on_obs(self.sid, mid, obs)
+                if not obs.recovered:
+                    self.pending.append((obs, record))
+        if records:
+            groups, _more = decide(
+                [obs for obs, _record in records],
+                status_of=lambda rid: getattr(self.registry.get(rid), "status", ""),
+                mutes=set(), surfaced_causes=self.surfaced_causes, surfaced_counts=self.surfaced_counts)
+            if groups:
+                mark_surfaced(groups)                 # as after a delivered card
+                for obs, record in records:
+                    if obs.surfaced >= 1:
+                        self.surfaced_causes.add((obs.rule_id, short_hash(obs.cause) if obs.cause else ""))
+                    if obs.surfaced == 1:
+                        self.surfaced_counts[obs.rule_id] = self.surfaced_counts.get(obs.rule_id, 0) + 1
+                        record["card"] = True
+                self.out["card_turns"] += 1
+                self.out["cards"] += len(groups)      # one bullet per group
         self.turn_obs = []
         self.turn_start = len(self.calls)
         self.had_tools = False
@@ -186,9 +261,13 @@ class _Session:
     def close_session(self) -> None:
         if self.turn_obs or self.had_tools:
             self.close_turn()
-        for obs, record in self.pending:
-            later = self.calls[obs.call_index + 1:]
-            record["later"] = any(r.satisfied(later) for r in obs.recover)
+        if self.pending and not self.expired():
+            first = min(obs.call_index for obs, _record in self.pending)
+            index = _Index(self.calls, max(first, 0))
+            for n, (obs, record) in enumerate(self.pending):
+                if n and n % self.CHECK_EVERY == 0 and self.expired():
+                    break
+                record["later"] = index.followed(obs)
         self.pending = []
 
 
@@ -292,9 +371,10 @@ def render_report(result: dict, days: int) -> str:
         lines.append("No catalogued limit left a trace in this window.")
     lines.extend(body)
     if body:
-        lines.append("Hermes told you about none of these. With Fine Print running, "
+        lines.append("Hermes told you about none of these. With Fine Print running, about "
                      f"{result['card_turns']:,} of {result['tool_turns']:,} turns with tool calls "
-                     f"({_share(result['card_turns'], result['tool_turns'])}) would have ended with a card.")
+                     f"({_share(result['card_turns'], result['tool_turns'])}) would have ended with a card "
+                     "(estimate: same detectors and card policy; no mutes; response and compaction events are not in stored rows).")
     if result.get("partial"):
         lines.append("(Stopped early to stay within the time budget; use a smaller window for exact totals.)")
     return "\n".join(lines)
