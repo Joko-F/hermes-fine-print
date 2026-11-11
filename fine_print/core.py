@@ -230,11 +230,15 @@ class FinePrint:
                        len(system_prompt) if isinstance(system_prompt, str) else 0)
         session_id = self.buffer.canonical(str(session_id or ""))
         with self._side_lock:
-            if session_id and session_id not in self._session_checked and session_id not in self.session_facts:
-                _put(self.session_facts, session_id, {
-                    "model": ev.model, "provider": ev.provider, "api_mode": ev.api_mode, "platform": str(platform or ""),
-                    "max_tokens": ev.max_tokens, "tool_count": ev.tool_count, "tool_names": _tool_names(request),
-                    "system_prompt_chars": ev.system_prompt_chars})
+            if session_id and session_id not in self._session_checked:
+                facts = self.session_facts.get(session_id)
+                if facts is None:
+                    facts = {}
+                    _put(self.session_facts, session_id, facts)
+                if "model" not in facts:     # the first request only; pre_llm_call may have left is_first_turn
+                    facts.update(model=ev.model, provider=ev.provider, api_mode=ev.api_mode,
+                                 platform=str(platform or ""), max_tokens=ev.max_tokens, tool_count=ev.tool_count,
+                                 tool_names=_tool_names(request), system_prompt_chars=ev.system_prompt_chars)
         self._attach(session_id, str(turn_id), self.registry.run("wire", "", ev))
 
     def api_error(self, session_id: str = "", turn_id: str = "", model: str = "", provider: str = "",
