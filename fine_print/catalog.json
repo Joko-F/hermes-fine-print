@@ -1762,7 +1762,7 @@
     },
     {
       "id": "web_search.caps_and_snippets",
-      "title": "Several web_search backends return at most 20 results, though the schema allows 100",
+      "title": "Several web_search backends cap results at 20; the schema allows 100",
       "topic": "web",
       "kind": "SAW",
       "driver": "tool",

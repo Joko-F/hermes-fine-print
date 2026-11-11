@@ -274,7 +274,7 @@ What a user should know before installing (catalog rule 13):
 | web | `web_extract.silent_keyless_rescue`: A failed web_extract is re-served silently by a free keyless backend | nobody | reference |
 | web | `web_extract.thin_content_success`: JS-only or bot-walled pages come back as short 'successful' text | nobody | reference |
 | web | `web_extract.url_cap_5`: web_extract fetches only the first 5 URLs | nobody | live, fixture-only |
-| web | `web_search.caps_and_snippets`: Several web_search backends return at most 20 results, though the schema allows 100 | nobody | live, fixture-only |
+| web | `web_search.caps_and_snippets`: Several web_search backends cap results at 20; the schema allows 100 | nobody | live, fixture-only |
 | web | `web_search.rescue_nested_error`: A failed web_search is re-served by a free keyless backend | model | live, verified |
 
 ## Development
