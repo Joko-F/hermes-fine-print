@@ -36,6 +36,9 @@ def _web_cut(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     line = (f"web_extract · {s}: the model saw {n['shown']:,} of {n['total']:,} chars "
             f"({_pct(n['shown'], n['total'])}); the middle was cut.")
     saved = n.get("saved", 1)
+    if saved and n["total"] > C.WEB_STORED_COPY_CHARS:     # the saved copy itself stops there
+        return line, (f"ask the agent to download the page with terminal (curl) and read the file in parts: "
+                      f"the saved copy stops at {C.WEB_STORED_COPY_CHARS:,} chars.")
     ask = ("ask the agent to read the rest of that page from its saved copy" if saved
            else "ask the agent to fetch that page again with a larger char_limit")
     want = (n["total"] // 5_000 + 1) * 5_000

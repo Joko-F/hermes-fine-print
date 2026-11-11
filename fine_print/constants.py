@@ -11,6 +11,7 @@ WEB_EXTRACT_CHAR_LIMIT = 15_000        # web.extract_char_limit default (hermes_
 WEB_EXTRACT_CHAR_LIMIT_MIN = 2_000     # clamp (tools/web_tools_truncate.py:24-44)
 WEB_EXTRACT_CHAR_LIMIT_MAX = 500_000
 WEB_EXTRACT_URL_CAP = 5                # urls[:5] (tools/web_tools.py:543-548)
+WEB_STORED_COPY_CHARS = 2_000_000      # MAX_STORED_TEXT_CHARS (tools/web_tools_truncate.py:22, :70-74)
 
 # search_files
 SEARCH_DEFAULT_LIMIT = 50              # DEFAULT_SEARCH_LIMIT (tools/file_operations_search.py:1323)

@@ -40,7 +40,7 @@ _IDENTICAL_STUB = re.compile(
 # tools/file_operations_search.py:883-885, :912-922, :1299-1306. The
 # count-only probe reads at most 50 output rows, so these are not global totals.
 _HIDDEN_PROBE = re.compile(
-    r"\A0 matches in visible files, but (\d+) match\(es\) in (\d+) "
+    r"(?:\A| )0 matches in visible files, but (\d+) match\(es\) in (\d+) "
     r"hidden or gitignored file\(s\): [^\r\n]+ — these are excluded by default\.\Z")
 
 
@@ -160,7 +160,7 @@ def spill_read_clamped(ev: ToolEvent) -> Iterator[Obs]:
     name = basename(path)
     yield Obs("spill-format-dead-end-v0.23", numbers={"marked": count, "prefix_max": prefix_max},
               subject=safe_label(path), cause=path, recover=(Recover.names(name, ("execute_code", "terminal")),),
-              severity="card")
+              severity="card", dead_end=True)      # this read is no follow-up on the spilled result
 
 
 @text("spill-format-dead-end-v0.23")
@@ -204,7 +204,7 @@ def identical_stub(row: CommitRow) -> Iterator[Obs]:
     match = _IDENTICAL_STUB.match(content)
     if not match or match.group(1) != row.tool:
         return
-    numbers = {"shown": len(content), "minimum": _IDENTICAL_MIN_CHARS}
+    numbers = {"shown": len(match.group(0)), "minimum": _IDENTICAL_MIN_CHARS}   # the stub, without later advice
     if type(row.raw_len) is int and row.raw_len >= _IDENTICAL_MIN_CHARS and row.raw_len > len(content):
         numbers["total"] = row.raw_len
     # Informational: the earlier copy is in the same turn's context, so nothing is lost. Logged only.
@@ -228,7 +228,7 @@ def hidden_probe(ev: ToolEvent) -> Iterator[Obs]:
     warning = obj.get("warning")
     if obj["total_count"] != 0 or not isinstance(warning, str) or obj.get("error"):
         return
-    match = _HIDDEN_PROBE.fullmatch(warning)
+    match = _HIDDEN_PROBE.search(warning)        # core appends the hint to an earlier warning (:1306)
     if not match:
         return
     matches, files = int(match.group(1)), int(match.group(2))

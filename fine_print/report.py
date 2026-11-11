@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
 
 from .cards import PER_SESSION_CARDS_PER_RULE
-from .engine import Call, CommitRow, Obs, Registry, ToolEvent
+from .engine import Call, CommitRow, Obs, Registry, ToolEvent, fetched_nothing
 from .signals import decode_stored, json_object, short_hash, strip_untrusted
 
 MAX_SECONDS = 25.0
@@ -145,6 +145,8 @@ class _Session:
             self.calls[index] = dataclasses.replace(call, ok=False)
             return
         found = self.registry.run("tool", tool, ToolEvent(tool, call.args, inner, self.sid, "", tcid, replay=True))
+        if fetched_nothing(tool, obj, found):              # the same rule as the live path (core.tool_result)
+            self.calls[index] = dataclasses.replace(call, ok=False)
         found += self.registry.run("commit", tool, CommitRow(tool, call.args, content, None, tcid))
         for obs in found:
             obs.call_index = index

@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Iterator
 
+from .. import constants as C
 from ..cards import Cfg, text
 from ..engine import Obs, Recover, ToolEvent, rule
 from ..signals import basename, json_object, parse_web_footer, safe_label, url_host
@@ -12,11 +13,11 @@ from ..signals import basename, json_object, parse_web_footer, safe_label, url_h
 # plugins/web/_common.py:19; tavily/provider.py:104, parallel/provider.py:62, perplexity/provider.py:66,229,
 # brave_free/provider.py:33, keenable/provider.py:53 cap at 20; exa, firecrawl, searxng and xai pass the limit through.
 _SEARCH_CAP = 20
-# tools/web_tools_truncate.py:22,70-74 (Hermes v0.23.0).
-_STORED_PAGE_CAP = 2_000_000
+_STORED_PAGE_CAP = C.WEB_STORED_COPY_CHARS
 
 # tools/web_tools_truncate.py:67-69; tools/file_operations.py:488-502.
-WEB_CACHE_PATH = re.compile(r'(?:\A|/)cache/web/[a-zA-Z0-9_.-]+-[0-9a-f]{10}\.md\Z')
+# The directory is cache/web, or web_cache on a home that still has the legacy folder (:67).
+WEB_CACHE_PATH = re.compile(r'(?:\A|[/\\])(?:cache[/\\]web|web_cache)[/\\][a-zA-Z0-9_.-]+-[0-9a-f]{10}\.md\Z')
 _PAST_EOF = re.compile(r'Note: offset (\d+) is beyond the end of the file \(1 lines total\)\. '
                        r'Retry with offset <= 1\.\Z')
 _CLAMPED_WEB_LINE = re.compile(r'1\|([^\n]*)\.\.\. \[truncated\]\Z')
@@ -50,7 +51,8 @@ def web_copy_recovery(ev: ToolEvent) -> Iterator[Obs]:
     yield Obs('web_extract.pdf_from_url', numbers={'phase': phase, 'shown': shown, 'lines': 1, 'offset': offset},
               subject=safe_label(path), cause=f'{path}:{phase}',
               recover=(Recover.names(basename(path), ('terminal', 'execute_code')),),
-              severity='card' if phase == 'line_clamp' else 'digest')
+              severity='card' if phase == 'line_clamp' else 'digest',
+              dead_end=True)        # this read returned nothing new: it is no follow-up on the cut page
 
 
 @text('web_extract.pdf_from_url')
@@ -155,7 +157,7 @@ def stored_copy_cap(ev: ToolEvent) -> Iterator[Obs]:
         url = str(row.get('url') or '')
         yield Obs('web-extract-stored-copy-2m-cap', numbers={'shown': _STORED_PAGE_CAP, 'total': total},
                   subject=url_host(url) or safe_label(footer['path']), cause=url or footer['path'],
-                  severity='card' if _STORED_PAGE_CAP < 0.8 * total else 'digest',
+                  severity='digest',      # the page's own card (head + tail) carries the advice
                   note=(f'web_extract saved only the first {_STORED_PAGE_CAP:,} of {total:,} source chars; '
                         'the saved copy is not complete. A direct download can preserve the rest.'))
 

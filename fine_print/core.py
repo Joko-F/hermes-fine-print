@@ -7,6 +7,7 @@ fake. No LLM calls, no network, no subprocesses anywhere in this package.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import threading
 import time
@@ -16,7 +17,7 @@ from . import constants as C
 from . import rules  # noqa: F401  (registers the detectors)
 from .cards import decide, mark_surfaced, render
 from .engine import (REGISTRY, ApiEvent, Call, CommitRow, CompactionEvent, Obs, Registry, ToolEvent, TurnBuffer,
-                     TurnEvent, TurnState, annotate)
+                     TurnEvent, TurnState, annotate, fetched_nothing)
 from .ledger import Ledger
 
 logger = logging.getLogger("fine_print")
@@ -86,6 +87,9 @@ class FinePrint:
         if failed:
             return None
         found = self.registry.run("tool", tool, ev)
+        if fetched_nothing(tool, ev.json, found):          # a read that got nothing is not a follow-up
+            with self.buffer.lock():
+                st.calls[index] = dataclasses.replace(st.calls[index], ok=False)
         if not found:
             return None
         for obs in found:

@@ -208,12 +208,22 @@ class Obs:
     recover: tuple = ()              # alternatives; any satisfied => recovered
     note: Optional[str] = None       # model-facing line; used only when the rule's core_tells is "nobody"
     severity: str = "card"           # card | digest | log
+    dead_end: bool = False           # the call this was seen on fetched nothing new (see fetched_nothing)
     # set by the engine
     call_index: int = -1
     tool_call_id: str = ""
     recovered: bool = False          # a follow-up on the missing part was seen later in the turn
     surfaced: int = 0                # 0 not shown; 1 a card bullet; 2 counted under another bullet
     noted: bool = False              # its note was actually written into the tool result
+
+
+def fetched_nothing(tool: str, obj: Optional[dict], found: Iterable["Obs"]) -> bool:
+    """True when a call cannot count as a follow-up on an earlier loss although it did not fail: a
+    rule saw it run into a dead end itself (a saved copy that is one cut line, an offset past its
+    end), or it is a read that returned no content at all."""
+    if any(o.dead_end for o in found):
+        return True
+    return tool == "read_file" and obj is not None and obj.get("content") == ""
 
 
 # ── rules ──────────────────────────────────────────────────────────────────────────────────────────
