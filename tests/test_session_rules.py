@@ -5,6 +5,8 @@ call sites: ``pre_llm_call`` (agent/turn_context.py:861-873), ``pre_api_request`
 ``body["tools"][i]["function"]["name"]``) and ``post_api_request`` (agent/turn_response_intake.py:76-106,
 ``context_length`` = the compressor's window)."""
 
+import pytest
+
 from fine_print import cards
 from fine_print.engine import REGISTRY, SessionEvent
 
@@ -46,7 +48,7 @@ def test_all_rules_registered_on_the_session_driver():
 def test_a_window_above_the_pin_proves_the_pin_is_not_in_force(fp, host):
     got = run(fp, host, cfg={"model.context_length": 32_000}, window=200_000)
     obs = got[PIN]
-    assert obs.numbers == {"pinned": 32_000, "window": 200_000} and obs.severity == "card"
+    assert obs.numbers == {"pinned": 32_000, "window": 200_000, "proven": 1} and obs.severity == "card"
     assert line(obs, host) == (
         "model.context_length pins 32,000 tokens in your config, but this session (claude-sonnet-5-5) runs with a "
         "200,000-token window: the pin is not in force. Hermes applies it only while the running model, base URL "
@@ -65,6 +67,26 @@ def test_a_window_below_the_pin_names_both_causes_and_is_no_card(fp, host):
         "and provider match the configured default) or Hermes lowered the window after a provider limit; the hook "
         "does not show which.")
     assert "not in force." not in text
+
+
+@pytest.mark.parametrize("provider,mode", [("llamacpp", "chat_completions"), ("custom", "chat_completions"),
+                                           ("Llama.cpp", "chat_completions"), ("openai-codex", "codex_app_server")])
+def test_a_window_above_the_pin_is_no_proof_where_core_can_raise_it(fp, host, provider, mode):
+    """A managed local runtime grows its window and the Codex app server reports its own
+    (agent/conversation_loop.py:437-446, agent/codex_runtime.py:186-192): there the pin may be in force."""
+    host.cfg.clear()
+    host.cfg["model.context_length"] = 32_000
+    fp.api_response(session_id="g", turn_id="t1", model="local-model", provider=provider, api_mode=mode,
+                    finish_reason="stop", context_length=64_000)
+    (obs,) = [o for o in fp.buffer.get("g", "t1").obs if o.rule_id == PIN]
+    assert obs.numbers == {"pinned": 32_000, "window": 64_000} and obs.severity == "digest"
+    text = line(obs, host)
+    assert text == (
+        "model.context_length pins 32,000 tokens in your config; this session (local-model) runs with a larger "
+        "64,000-token window. Either the pin is not in force (Hermes applies it only while model, base URL and "
+        "provider match the configured default) or the runtime raised the window itself (a managed local runtime, "
+        "the Codex app server); the hook does not show which.")
+    assert "not in force." not in text and "but this session" not in text
 
 
 def test_pin_given_as_digit_string_counts(fp, host):

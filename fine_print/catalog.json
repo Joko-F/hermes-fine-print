@@ -224,12 +224,12 @@
       "kind": "SETTINGS",
       "driver": "reference",
       "detect": "reference",
-      "what": "A continuing or resumed session replays its stored system prompt byte for byte. Edits to SOUL.md and project context files such as AGENTS.md are not seen until /new, a compaction rebuild or `hermes sessions refresh-prompts`. Skills added or removed later arrive as a one-shot note. The tool list is pinned, so a tool that became available later stays out.",
+      "what": "A continuing or resumed session replays its stored system prompt byte for byte. Edits to SOUL.md and project context files such as AGENTS.md are not seen until /new, a compaction rebuild or `hermes sessions refresh-prompts`. Skills added or removed later are announced by a note in the next turn. The tool list is pinned, so a tool that became available later stays out.",
       "threshold": "Until /new, compaction or an explicit refresh",
       "told": "nobody",
-      "told_detail": "Skill add or remove reaches the model as a one-shot note; SOUL.md, context files and tool pins are silent.",
+      "told_detail": "Skill add or remove reaches the model as a note; SOUL.md, context files and tool pins are silent.",
       "config_key": null,
-      "fix": "Run /new or /compress to rebuild the prompt and the tool list. `hermes sessions refresh-prompts` rebuilds the prompt only; the tool list stays pinned.",
+      "fix": "Run /new to rebuild the prompt and the tool list. `hermes sessions refresh-prompts` (and a compaction) rebuild the prompt; refresh-prompts keeps the tool list pinned.",
       "applies": "",
       "issues": [
         "#150622"

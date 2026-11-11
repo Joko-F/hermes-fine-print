@@ -124,7 +124,8 @@ def image_gap(ev: WireEvent) -> Iterator[Obs]:
     kind = "evict" if marked else "absent"
     yield Obs("outbound-image-eviction",
               numbers={"held": len(held), "sent": len(sent), "missing": missing, "marked": marked,
-                       "sent_kb": sum(sent) // 1024, "total": len(held), "shown": len(sent)},
+                       "sent_kb": sum(sent) // 1024 if all(sent) else 0,     # a remote-URL image has no size
+                       "total": len(held), "shown": len(sent)},
               subject=clean_token(ev.model), cause=f"{kind}:{missing}", severity="card" if marked else "digest")
 
 

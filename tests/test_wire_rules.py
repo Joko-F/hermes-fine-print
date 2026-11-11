@@ -246,3 +246,12 @@ def test_a_request_shape_the_counter_does_not_know_yields_nothing(fp, mode):
 def test_the_three_known_shapes_are_read(fp, mode):
     (obs,) = send(fp, history(3), [{"role": "user", "content": "go"}], mode=mode)
     assert (obs.numbers["held"], obs.numbers["sent"]) == (3, 0)
+
+
+def test_the_encoded_size_is_stated_only_when_every_sent_image_has_a_payload(fp):
+    remote = {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://h.example/a.png"}}]}
+    inline = {"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64," + "A" * 4096}}]}
+    (obs,) = send(fp, history(3), [remote, inline])
+    assert (obs.numbers["sent"], obs.numbers["sent_kb"]) == (2, 0) and "KB encoded" not in line(obs)
+    (obs2,) = send(fp, history(3), [inline, inline], turn="t2")
+    assert obs2.numbers["sent_kb"] == 8 and "(8 KB encoded)" in line(obs2)

@@ -31,6 +31,11 @@ CODEX_900K_WINDOW = 900_000
 _CODEX_SNAPSHOT_BASES = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol", "gpt-6-luna")
 _CODEX_900K_BASES = frozenset({*_CODEX_SNAPSHOT_BASES, "gpt-5.4", "gpt-daybreak-blue-latest", "gpt-6-astra",
                                "gpt-6.1-sol"})
+# Where core raises a window by itself: a managed local runtime grows it (agent/conversation_loop.py:437-446:
+# these providers on a localhost URL; the hook carries no URL, so the provider alone rules the card out) and
+# the Codex app server reports its own (agent/codex_runtime.py:186-192).
+_GROWING_PROVIDERS = frozenset({"llamacpp", "llama.cpp", "llama-cpp", "custom"})
+_GROWING_API_MODE = "codex_app_server"
 # hermes_cli/config_defaults.py:573-576: the shipped default of compression.threshold.
 DEFAULT_THRESHOLD = 0.50
 
@@ -66,31 +71,45 @@ def pin_not_in_effect(ev: SessionEvent) -> Iterator[Obs]:
     (agent/model_metadata.py:2221-2223), and that window is what the response hook reports
     (agent/turn_response_intake.py:101). Core applies the pin only while model, base URL and provider
     match the configured default, else drops it with a debug log only (agent/agent_init.py:1606-1650; the
-    live paths re-scope it the same way, :1668-1696). Core can also LOWER a window at run time without
-    looking at the pin: the long-context tier cap (agent/turn_recovery.py:1717) and a provider-reported
-    limit (agent/turn_overflow.py:312). Nothing raises it. So a reported window ABOVE the pin proves the
-    pin is not in force: a card (the user set a ceiling, core tells nobody; ``/limits mute`` for a setup
-    that runs other models on purpose). A window BELOW the pin has two possible causes the payload cannot
-    tell apart: a digest line that names both. Subagents are left out: their window is not the user's."""
+    live paths re-scope it the same way, :1668-1696). Core can also change a window at run time without
+    looking at the pin. It LOWERS one after a provider limit (the long-context tier cap,
+    agent/turn_recovery.py:1717; a provider-reported limit, agent/turn_overflow.py:312). It RAISES one in
+    two places only: a managed local runtime grows its window and the Codex app server reports its own
+    (``_GROWING_PROVIDERS``, ``_GROWING_API_MODE``). So a reported window ABOVE the pin, on a route where
+    neither can happen, proves the pin is not in force: a card (the user set a ceiling, core tells nobody;
+    ``/limits mute`` for a setup that runs other models on purpose). Every other difference has two
+    possible causes the payload cannot tell apart: a digest line that names both. Subagents are left out:
+    their window is not the user's."""
     if ev.is_subagent or not isinstance(ev.context_length, int) or ev.context_length <= 0:
         return
     pin = _int(ev.cfg("model.context_length", None))
     if pin is None or pin == ev.context_length:
         return
-    yield Obs("context-length-pin-ignored", numbers={"pinned": pin, "window": ev.context_length},
-              subject=clean_token(ev.model), cause=f"{pin}:{ev.context_length}",
-              severity="card" if ev.context_length > pin else "digest")
+    proven = (ev.context_length > pin and str(ev.provider or "").strip().lower() not in _GROWING_PROVIDERS
+              and ev.api_mode != _GROWING_API_MODE)
+    numbers = {"pinned": pin, "window": ev.context_length}
+    if proven:
+        numbers["proven"] = 1
+    yield Obs("context-length-pin-ignored", numbers=numbers, subject=clean_token(ev.model),
+              cause=f"{pin}:{ev.context_length}", severity="card" if proven else "digest")
 
 
 @text("context-length-pin-ignored")
 def _pin_not_in_effect(n: dict, s: str, cfg: Cfg):
     who = f" ({s})" if s else ""
-    if n["window"] > n["pinned"]:
+    if n.get("proven"):
         return (f"model.context_length pins {n['pinned']:,} tokens in your config, but this session{who} runs "
                 f"with a {n['window']:,}-token window: the pin is not in force. Hermes applies it only while the "
                 "running model, base URL and provider all match the configured default.",
                 "Run the configured default model, provider and base URL (model.default, model.provider, "
                 "model.base_url) so the pin applies, or accept the detected window shown in /usage.")
+    if n["window"] > n["pinned"]:
+        return (f"model.context_length pins {n['pinned']:,} tokens in your config; this session{who} runs with a "
+                f"larger {n['window']:,}-token window. Either the pin is not in force (Hermes applies it only while "
+                "model, base URL and provider match the configured default) or the runtime raised the window "
+                "itself (a managed local runtime, the Codex app server); the hook does not show which.",
+                "/usage shows the window in use; run the configured default model, provider and base URL "
+                "(model.default, model.provider, model.base_url) if the pin should apply.")
     return (f"model.context_length pins {n['pinned']:,} tokens in your config; this session{who} runs with a "
             f"smaller {n['window']:,}-token window. Either the pin is not in force (Hermes applies it only while "
             "model, base URL and provider match the configured default) or Hermes lowered the window after a "

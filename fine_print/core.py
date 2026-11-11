@@ -305,12 +305,12 @@ class FinePrint:
                       context_length if isinstance(context_length, int) else 0,
                       api_call_count if isinstance(api_call_count, int) else 0)
         session_id = self.buffer.canonical(str(session_id or ""))
-        if session_id and self._foreign_turn(session_id, str(turn_id)):
-            return                       # a background fork's response says nothing about this session
+        if not session_id or self._foreign_turn(session_id, str(turn_id)):
+            return                       # nobody's response, or a background fork's (see _foreign_turn)
         with self._side_lock:
-            if session_id and ev.model:
+            if ev.model:
                 _put(self.models, session_id, ev.model)
-            if ev.context_length > 0 and session_id:
+            if ev.context_length > 0:
                 _put(self.context_length, session_id, ev.context_length)
         found = self.registry.run("response", "", ev)
         found += self._session_check(session_id, ev)

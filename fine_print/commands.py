@@ -132,7 +132,9 @@ class Commands:
         if not entry:
             return f"No catalogued limit matches '{limit_id}'. Try /limits topics."
         rule = self.fp.registry.get(entry["id"])
-        detector = {"verified": "live detector, verified on real history",
+        # tool and commit rules replay over stored rows; every other driver's event is not in history
+        how = "on real history" if getattr(rule, "driver", "") in ("tool", "commit") else "in a live session"
+        detector = {"verified": f"live detector, verified {how}",
                     "fixture": "live detector, checked on fixtures only (logs, no cards)"}.get(
                         getattr(rule, "status", ""), "reference only, no detector in this version")
         told = {"nobody": "nobody", "model": "the model only", "user": "the user only",

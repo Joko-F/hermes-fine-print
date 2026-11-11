@@ -323,3 +323,11 @@ def test_a_vision_call_without_a_turn_is_dropped(host):
     fp.aux_call(aux_task="vision", session_id="", turn_id="", model="helper")
     fp.aux_call(aux_task="vision", session_id="S", turn_id="", model="helper")
     assert seen == [] and fp.buffer.get("S", "").obs == []
+
+
+def test_a_response_without_a_session_id_is_nobodys(host):
+    seen = []
+    fp = make(host, seen)
+    host.cfg["model.context_length"] = 32_000
+    fp.api_response(**response(session_id=""))
+    assert seen == [] and fp.buffer.get("", "T1").obs == [] and "" not in fp.models

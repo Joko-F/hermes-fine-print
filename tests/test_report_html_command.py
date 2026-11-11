@@ -75,3 +75,13 @@ def test_extra_words_after_report_show_usage(fp, tmp_path, monkeypatch):
     history(tmp_path, monkeypatch, [])
     assert commands(fp).handle("report html 7 8", "s1") == "Usage: /limits report [html] [days]"
     assert commands(fp).handle("report 7 8", "s1") == "Usage: /limits report [html] [days]"
+
+
+def test_explain_says_how_a_verified_rule_was_verified(fp):
+    """Stored history holds tool rows only: a request, routing or session rule was checked in a live session."""
+    cmd = commands(fp)
+    assert "Fine Print: live detector, verified on real history." in cmd.handle("explain web_extract.head_tail_truncation", "s1")
+    for rid in ("outbound-image-eviction", "cli-text-mode-image-description", "context-length-pin-ignored",
+                "compaction-stubs-old-tool-results-before-summary"):
+        out = cmd.handle("explain " + rid, "s1")
+        assert "Fine Print: live detector, verified in a live session." in out and "real history" not in out, rid

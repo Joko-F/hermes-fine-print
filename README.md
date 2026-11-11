@@ -203,8 +203,9 @@ hooks -> rules -> observations -> turn buffer -> policy -> card | model note | l
   as a routed image (the helper call that would prove it runs in the CLI's client process, before the
   turn starts in another one). The hook is allowed to inject context; Fine Print returns nothing from it.
 - Once per session, after its first response, the window Hermes reports is compared with what the
-  config asks for: a `model.context_length` pin (a window above the pin proves the pin is not in
-  force), a `compression.threshold` the user set below the floor, the Codex OAuth window.
+  config asks for: a `model.context_length` pin (a window above the pin, on a route where Hermes
+  cannot raise it by itself, proves the pin is not in force; any other difference is reported with
+  both possible causes), a `compression.threshold` the user set below the floor, the Codex OAuth window.
 - A background review fork runs under its parent's session id. Its requests and responses are told
   apart by their turn (a fork never announces one through `pre_llm_call`) and ignored.
 - The request body that Hermes hands to hooks is cut to 50,000 characters by default, so nothing is
