@@ -5,23 +5,17 @@ call sites: ``pre_llm_call`` (agent/turn_context.py:861-873), ``pre_api_request`
 ``body["tools"][i]["function"]["name"]``) and ``post_api_request`` (agent/turn_response_intake.py:76-106,
 ``context_length`` = the compressor's window)."""
 
-import pytest
-
 from fine_print import cards
 from fine_print.engine import REGISTRY, SessionEvent
 
 SESSION_RULES = (
     "context-length-pin-ignored", "compaction-trigger-floor-and-codex-autoraise", "codex-oauth-context-cap",
-    "tool-search-defers-mcp-and-plugin-tools", "stale-system-prompt-and-pinned-tools-on-resume",
+    "stale-system-prompt-and-pinned-tools-on-resume",
 )
 
 
-def _tools(*names):
-    return {"body": {"tools": [{"type": "function", "function": {"name": n}} for n in names]}}
-
-
 def run(fp, host, *, cfg=None, window=200_000, model="claude-sonnet-5-5", provider="anthropic",
-        tools=None, tool_count=0, first_turn=True, sid="s1"):
+        tool_count=0, first_turn=True, sid="s1"):
     """One session's first request and response; returns {rule_id: Obs} of the session rules."""
     host.cfg.clear()
     host.cfg.update(cfg or {})
@@ -29,7 +23,7 @@ def run(fp, host, *, cfg=None, window=200_000, model="claude-sonnet-5-5", provid
         fp.user_turn(session_id=sid, turn_id="t1", user_message="hi", conversation_history=[],
                      is_first_turn=first_turn, model=model, platform="cli")
     fp.api_request(session_id=sid, turn_id="t1", model=model, provider=provider, api_mode="chat_completions",
-                   tool_count=tool_count, platform="cli", request=_tools(*tools) if tools else None)
+                   tool_count=tool_count, platform="cli")
     fp.api_response(session_id=sid, turn_id="t1", model=model, provider=provider, finish_reason="stop",
                     context_length=window)
     return {o.rule_id: o for o in fp.buffer.get(sid, "t1").obs if o.rule_id in SESSION_RULES}
@@ -39,12 +33,12 @@ def line(obs, host):
     return cards.describe(obs.rule_id, obs.numbers, obs.subject, host.config)[0]
 
 
-def test_all_five_rules_registered_as_session_fixtures():
+def test_all_rules_registered_as_session_fixtures():
     for rid in SESSION_RULES:
         rule = next(r for r in REGISTRY.matching("session", "") if r.id == rid)
         assert rule.status == "fixture"
     told = {r.id: r.core_tells for r in REGISTRY.matching("session", "")}
-    assert told["context-length-pin-ignored"] == "nobody" and told["tool-search-defers-mcp-and-plugin-tools"] == "model"
+    assert told["context-length-pin-ignored"] == "nobody"
     assert told["compaction-trigger-floor-and-codex-autoraise"] == "user"
 
 
@@ -83,11 +77,17 @@ FLOOR = "compaction-trigger-floor-and-codex-autoraise"
 def test_threshold_below_floor_on_small_window_fires(fp, host):
     got = run(fp, host, cfg={"compression.threshold": 0.5}, window=200_000)
     obs = got[FLOOR]
-    assert obs.numbers == {"configured": 0.5, "window": 200_000} and obs.severity == "digest"
+    assert obs.numbers == {"configured": 0.5, "window": 200_000} and obs.severity == "log"     # the shipped default
     assert line(obs, host) == (
         "compression.threshold is 0.5 in your config, but this session's window is 200,000 tokens (under "
         "512,000), and Hermes v0.23.0 raises the compaction trigger for such windows to at least 0.75 of the "
         "usable window, so compaction starts later than configured.")
+
+
+def test_a_threshold_the_user_chose_is_a_digest_line(fp, host):
+    obs = run(fp, host, cfg={"compression.threshold": 0.3}, window=200_000)[FLOOR]
+    assert obs.numbers == {"configured": 0.3, "window": 200_000} and obs.severity == "digest"
+    assert line(obs, host).startswith("compression.threshold is 0.3 in your config, but this session's window is 200,000")
 
 
 def test_threshold_default_is_used_when_the_key_is_absent(fp, host):
@@ -146,45 +146,13 @@ def test_codex_misses(fp, host):
                             model="gpt-6.1-sol", provider="openai-codex", sid="h")
 
 
-# ── tool-search-defers-mcp-and-plugin-tools ────────────────────────────────────────────────────────
-SEARCH = "tool-search-defers-mcp-and-plugin-tools"
-
-
-def test_bridge_tools_listed_fires(fp, host):
-    names = ("terminal", "read_file", "tool_search", "tool_describe", "tool_call")
-    obs = run(fp, host, tools=names, tool_count=5, first_turn=None)[SEARCH]
-    assert obs.numbers == {"tools": 5} and obs.severity == "digest"
-    assert line(obs, host) == (
-        "this session offers 5 tools, among them Hermes's tool_search bridge; tools Hermes defers (MCP tools, "
-        "non-core plugin tools, some built-ins) are reachable only through tool_search, not listed directly.")
-
-
-@pytest.mark.xfail(strict=True, reason="core.py api_request skips recording the request facts when user_turn already "
-                   "created session_facts[sid] (the real order: pre_llm_call, then pre_api_request); see RESULT.md "
-                   "change request 1. Remove this mark when the lead has fixed it.")
-def test_bridge_tools_are_seen_in_the_real_hook_order(fp, host):
-    names = ("terminal", "tool_search", "tool_describe", "tool_call")
-    assert SEARCH in run(fp, host, tools=names, tool_count=4, first_turn=True)
-
-
-def test_bridge_count_falls_back_to_the_names_when_the_count_is_missing(fp, host):
-    assert run(fp, host, tools=("tool_search", "tool_describe", "tool_call"), first_turn=None)[SEARCH].numbers == {"tools": 3}
-
-
-def test_bridge_misses(fp, host):
-    assert SEARCH not in run(fp, host, tools=None, tool_count=40, sid="a")                       # names unknown
-    assert SEARCH not in run(fp, host, tools=("terminal", "read_file"), tool_count=2, sid="b")
-    assert SEARCH not in run(fp, host, tools=("tool_search",), tool_count=1, sid="c")            # not the bridge
-    assert SEARCH not in run(fp, host, tools=("mcp_x_tool_search", "tool_describe"), sid="d")
-
-
 # ── stale-system-prompt-and-pinned-tools-on-resume ─────────────────────────────────────────────────
 RESUME = "stale-system-prompt-and-pinned-tools-on-resume"
 
 
 def test_resumed_session_fires(fp, host):
     obs = run(fp, host, first_turn=False)[RESUME]
-    assert obs.severity == "digest" and obs.numbers == {}
+    assert obs.severity == "log" and obs.numbers == {}
     assert line(obs, host) == (
         "this session continues earlier turns; a continuing session normally replays its stored system prompt and "
         "tool list, so later edits to SOUL.md, project context files or skills do not reach it until /new, a "
@@ -212,14 +180,13 @@ def test_no_rule_raises_on_garbage_events():
     assert len(rules) == len(SESSION_RULES)
     for model in junk:
         for window in junk:
-            for tools in junk:
-                for cfg_value in junk:
-                    ev = SessionEvent(model=model, provider=model, context_length=window, tool_count=window,
-                                      tool_names=tools, is_first_turn=cfg_value, max_tokens=window,
-                                      cfg=lambda key, default, v=cfg_value: v)
-                    for r in rules:
-                        for obs in r.fn(ev) or ():
-                            cards.describe(obs.rule_id, obs.numbers, obs.subject, lambda k, d: d)
+            for cfg_value in junk:
+                ev = SessionEvent(model=model, provider=model, context_length=window, tool_count=window,
+                                  is_first_turn=cfg_value, max_tokens=window,
+                                  cfg=lambda key, default, v=cfg_value: v)
+                for r in rules:
+                    for obs in r.fn(ev) or ():
+                        cards.describe(obs.rule_id, obs.numbers, obs.subject, lambda k, d: d)
 
 
 def test_default_event_yields_nothing():

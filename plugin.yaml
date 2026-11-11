@@ -2,7 +2,7 @@ name: fine-print
 version: 0.1.0
 manifest_version: 2
 api_version: 1
-description: "Shows where Hermes silently shrinks, cuts, swaps or hides what the model sees: a card with before/after numbers and the fix, a note to the model only where core tells nobody, and /limits explaining 80 catalogued limits. No LLM calls, no network."
+description: "Shows where Hermes silently shrinks, cuts, swaps or hides what the model sees: a card with before/after numbers and the fix, a note to the model only where core tells nobody, and /limits explaining 81 catalogued limits. No LLM calls, no network."
 author: Joko-F
 license: MIT
 homepage: https://github.com/Joko-F/hermes-fine-print

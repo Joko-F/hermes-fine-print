@@ -246,7 +246,6 @@ class SessionEvent:
     context_length: int = 0          # the window Hermes uses for this session (0 = not reported)
     max_tokens: Optional[int] = None
     tool_count: int = 0              # tools offered in the first request
-    tool_names: tuple = ()           # their names when the request payload listed them (at most 200)
     system_prompt_chars: int = 0
     is_first_turn: Optional[bool] = None    # False = the session was resumed; None = not known
     is_subagent: bool = False

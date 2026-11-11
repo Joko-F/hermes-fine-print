@@ -12,8 +12,8 @@ CATALOG = Path(__file__).parent.parent / "fine_print" / "catalog.json"
 
 TOPICS = {"images", "web", "files", "tools", "context", "model", "settings"}
 KINDS = {"SAW", "MISSING", "SWAPPED", "SETTINGS", "FORGOT"}
-DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "turn", "session",
-           "compaction", "route", "reference"}
+DRIVERS = {"tool", "tool+commit", "commit", "wire", "api_error", "response", "turn", "session",
+           "compaction", "route", "aux", "reference"}
 DETECTS = {"live", "heuristic", "reference"}
 TOLD = {"nobody", "model", "user", "both"}
 APPLIES = {"next call", "next session", "gateway restart", ""}
@@ -51,7 +51,7 @@ def test_top_level(doc):
 
 
 def test_entry_count(entries):
-    assert len(entries) == 80
+    assert len(entries) == 81
 
 
 def test_unique_ids(entries):

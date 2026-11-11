@@ -195,3 +195,78 @@ def test_rules_never_raise_on_garbage(fp):
                 message_count="x", api_duration="y")
     assert REGISTRY.failed.get("aux-vision-substitution", 0) == 0
     assert REGISTRY.failed.get("gateway-text-mode-150-word-image", 0) == 0
+
+
+# ── cli-text-mode-image-description ──────────────────────────────────────────────────────────────
+# The three notes hermes_cli/cli_stream_mixin.py:657-677 writes, joined as :683-686 joins them. The first
+# is what a live CLI turn with --image and an explicit auxiliary.vision.model delivered to pre_llm_call.
+CLI_FAIL = ("[The user attached an image but it couldn't be analyzed. You can try examining it with "
+            "vision_analyze using image_url: /tmp/a.png]\n\nhi")
+CLI_RAISE = ("[The user attached an image but analysis failed (TimeoutError: slow). You can try examining it "
+             "with vision_analyze using image_url: /tmp/a.png]\n\nhi")
+CLI_TWO = (CLI_OK[:-len("\n\nhi")] + "\n\n" + CLI_OK)
+
+
+def cli_turn(fp, message, **over):
+    payload = dict(session_id="s1", turn_id="t1", user_message=message, conversation_history=[],
+                   is_first_turn=True, model="claude-haiku-5-5", platform="cli", parent_session_id="")
+    payload.update(over)
+    fp.user_turn(**payload)
+    return [o for o in fp.buffer.get(payload["session_id"], payload["turn_id"]).obs
+            if o.rule_id == "cli-text-mode-image-description"]
+
+
+def test_cli_rule_is_registered_with_the_catalogue_told():
+    rule = REGISTRY.get("cli-text-mode-image-description")
+    assert (rule.driver, rule.core_tells) == ("route", "both")
+
+
+def test_one_described_image_as_the_cli_writes_it(fp):
+    (obs,) = cli_turn(fp, CLI_OK)
+    assert obs.numbers == {"images": 1} and obs.severity == "card" and obs.subject == "cli" and obs.cause == "described"
+    assert line(obs) == ("CLI image routing: 1 image you attached reached the model as a helper-model description, "
+                         "not as pixels.")
+    assert "agent.image_input_mode native" in fix(obs)                    # the catalogue's fix
+    assert "red square" not in str(obs.numbers) + obs.subject + obs.cause + line(obs)
+
+
+def test_two_cli_images_are_counted(fp):
+    (obs,) = cli_turn(fp, CLI_TWO)
+    assert obs.numbers == {"images": 2}
+    assert line(obs).startswith("CLI image routing: 2 images you attached reached the model")
+
+
+@pytest.mark.parametrize("message", [CLI_FAIL, CLI_RAISE])
+def test_a_cli_image_that_could_not_be_described_is_its_own_fact(fp, message):
+    (obs,) = cli_turn(fp, message)
+    assert obs.numbers == {"failed": 1} and obs.cause == "failed" and obs.severity == "card"
+    assert line(obs) == ("CLI image routing: 1 image you attached could not be described by the helper model; the "
+                         "model got a note with the file path instead of the image.")
+    assert fix(obs).startswith("ask the agent to call vision_analyze on the path")
+    assert "TimeoutError" not in line(obs) and "/tmp" not in line(obs) + str(obs.numbers)
+
+
+def test_described_and_failed_cli_images_are_two_observations(fp):
+    got = cli_turn(fp, CLI_OK[:-len("\n\nhi")] + "\n\n" + CLI_FAIL)
+    assert sorted(o.cause for o in got) == ["described", "failed"]
+
+
+@pytest.mark.parametrize("message", [
+    "hi\n" + CLI_OK,                                          # the note is not where the CLI puts it
+    "Why does Hermes write [The user attached an image. Here's what it contains: ...] into my message?",
+    "[The user attached an image: shot.png]\n[Examine it with the vision_analyze tool using image_url: /tmp/s.png]",
+    "[The user attached an image. Here's what it contains: all on one line]",
+    GW_OK, "", None, 7, [], [{"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}}],
+])
+def test_text_that_is_not_the_cli_note_does_not_fire(fp, message):
+    assert cli_turn(fp, message) == []
+
+
+def test_the_cli_note_in_the_first_text_part_of_a_list_counts(fp):
+    (obs,) = cli_turn(fp, [{"type": "text", "text": CLI_OK}])
+    assert obs.numbers == {"images": 1}
+
+
+def test_the_gateway_rule_and_the_cli_rule_do_not_fire_on_each_other(fp):
+    assert turn(fp, CLI_OK) == []
+    assert cli_turn(fp, GW_OK, turn_id="t2") == []

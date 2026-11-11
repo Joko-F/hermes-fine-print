@@ -22,7 +22,8 @@ whether the main model also received the pixels of that image elsewhere, so no s
 classic CLI and the gateway both put the substituted text into the staged message that carries the
 wrapper (cli_chat_turn_mixin.py:334, run_turn_prepare.py:608-620 strips only a leading timestamp and the
 Discord note), so the wrapper is in the string the hook receives. Anchored on the wrapper's exact first
-line at the start of a line; the description itself is never read, stored or quoted.
+line at the start of a line; the description itself is never read, stored or quoted. The CLI has its own
+wrapper and its own rule (``cli-text-mode-image-description``).
 """
 
 from __future__ import annotations
@@ -126,6 +127,45 @@ def gateway_description(ev: UserTurnEvent) -> Iterator[Obs]:
 
 def _images(n: int) -> str:
     return "1 image" if n == 1 else f"{n} images"
+
+
+# ── route: the CLI's wrapper ───────────────────────────────────────────────────────────────────────
+# hermes_cli/cli_stream_mixin.py:657-677 (_preprocess_images_with_vision): one bracketed note per attached
+# image, joined by blank lines and put BEFORE the user's own text (:683-686), so a routed message begins
+# with the first note. Seen live (CLI, --image, auxiliary.vision.model set): the user message of the turn
+# began with the first pattern and the request carried no image part.
+_CLI_START = "[The user attached an image"
+_CLI_DESCRIBED = re.compile(r"^\[The user attached an image\. Here's what it contains:\n", re.M)
+_CLI_FAILED = re.compile(r"^\[The user attached an image but (?:it couldn't be analyzed\. |analysis failed \()", re.M)
+
+
+@rule("cli-text-mode-image-description", driver="route", core_tells="both", status="fixture")
+def cli_description(ev: UserTurnEvent) -> Iterator[Obs]:
+    """The CLI's text-mode image routing wrote its note into the user message: the helper vision model
+    described the attached image (or could not), and the message carries that text and the file path in
+    place of the image. Fires only when the message BEGINS with the CLI's note (where core puts it), then
+    counts the notes at line starts; the description is never read, stored or quoted. One observation per
+    kind; the card policy shows a cause once per session."""
+    chunks = _texts(ev.message)
+    if not chunks or not chunks[0].startswith(_CLI_START):
+        return
+    described, failed = _count(_CLI_DESCRIBED, chunks), _count(_CLI_FAILED, chunks)
+    if described:
+        yield Obs("cli-text-mode-image-description", numbers={"images": described}, subject="cli",
+                  cause="described", severity="card")
+    if failed:
+        yield Obs("cli-text-mode-image-description", numbers={"failed": failed}, subject="cli",
+                  cause="failed", severity="card")
+
+
+@text("cli-text-mode-image-description")
+def _cli_description(n: dict, s: str, cfg: Cfg):
+    if n.get("failed"):
+        return (f"CLI image routing: {_images(n['failed'])} you attached could not be described by the helper "
+                "model; the model got a note with the file path instead of the image.",
+                "ask the agent to call vision_analyze on the path in that note, or attach the image again.")
+    return (f"CLI image routing: {_images(n['images'])} you attached reached the model as a helper-model "
+            "description, not as pixels.", None)
 
 
 @text("gateway-text-mode-150-word-image")

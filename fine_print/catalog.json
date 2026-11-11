@@ -465,7 +465,7 @@
       "title": "A helper vision model describes images; the main model sees only text",
       "topic": "images",
       "kind": "SWAPPED",
-      "driver": "route",
+      "driver": "aux",
       "detect": "live",
       "what": "With agent.image_input_mode on auto, any explicit auxiliary.vision provider, model or base_url makes Hermes send images to that helper model. So does a model missing from the catalog or a text-only model. The main model then receives only a text description, not the pixels.",
       "threshold": "Any auxiliary.vision value in auto mode; an unknown or text-only model",
@@ -504,6 +504,27 @@
       "code_refs": [
         "hermes_cli/cli_chat_turn_mixin.py:170-182",
         "hermes_cli/cli_chat_turn_mixin.py:184-198"
+      ]
+    },
+    {
+      "id": "cli-text-mode-image-description",
+      "title": "The CLI replaces attached images with a helper model's description",
+      "topic": "images",
+      "kind": "SWAPPED",
+      "driver": "route",
+      "detect": "live",
+      "what": "When image routing resolves to text mode (an explicit auxiliary.vision backend, a text-only or unknown model, or a failed native attach), the CLI asks the helper vision model to describe each attached image and puts that text into your message in place of the image. The session's model receives the description and the file path, not the pixels.",
+      "threshold": "Every attached image while image routing resolves to text mode",
+      "told": "both",
+      "told_detail": "The CLI prints 'analyzing <file>' and 'image analyzed', not that the session's model got text only. The model sees the description and the path.",
+      "config_key": "agent.image_input_mode",
+      "fix": "`hermes config set agent.image_input_mode native` sends images to the main model as pixels. Use it only with a vision-capable model, and remove any explicit auxiliary.vision backend.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "hermes_cli/cli_stream_mixin.py:633-686",
+        "hermes_cli/cli_chat_turn_mixin.py:159-198",
+        "agent/image_routing.py:330-416"
       ]
     },
     {
@@ -706,7 +727,7 @@
       "what": "On every request, old tool-result images are removed from the per-request copy in batches of 8 and replaced by a placeholder. This happens above 20 images (when one is over 2000 px), above 100 images, or above 24,000,000 image bytes. At least 3 are kept.",
       "threshold": "20 or 100 images; 24,000,000 B; batch of 8; floor of 3",
       "told": "model",
-      "told_detail": "Placeholder such as '[screenshot removed to save context]'; the user is not told.",
+      "told_detail": "The model sees '[screenshot removed to save context]' in place of each image (on Anthropic as JSON text inside the tool result); the user is not told.",
       "config_key": null,
       "fix": "Hardcoded in v0.23.0. Ask the agent to load the needed image again, using region crops to keep it small.",
       "applies": "",
@@ -1070,7 +1091,7 @@
       "title": "API calls are retried several times before any fallback",
       "topic": "model",
       "kind": "SWAPPED",
-      "driver": "wire",
+      "driver": "api_error",
       "detect": "live",
       "what": "A failing API call is retried by Hermes (agent.api_max_retries, default 3) on top of the SDK's own transient retries. Then the fallback chain runs, then up to 5 auto-recovery cycles of 15, 30, 60, 60 and 60 s. Retry chatter is dropped if the turn recovers.",
       "threshold": "3 Hermes retries; 2 SDK retries; 5 recovery cycles",
@@ -1092,7 +1113,7 @@
       "title": "Codex OAuth context window comes from a catalog, below the real limit",
       "topic": "settings",
       "kind": "SETTINGS",
-      "driver": "compaction",
+      "driver": "session",
       "detect": "live",
       "what": "On the openai-codex provider the context window comes from the Codex catalog (live probe cached 1 h) or a static fallback of 272,000 tokens. Hermes's own table lists 1,050,000 for gpt-6.1-sol, and Codex was verified to accept about 900K input. The larger window is opt-in through the gpt-6.1-sol-900k alias.",
       "threshold": "272,000 static fallback; 900,000 only with the -900k alias",
@@ -1136,7 +1157,7 @@
       ],
       "code_refs": [
         "agent/context_compressor.py:1149-1152",
-        "agent/context_compressor.py:2648-2660",
+        "agent/context_compressor.py:2184-2185",
         "agent/context_compressor.py:2752-2795",
         "agent/auxiliary_client.py:605-633"
       ]
@@ -1153,7 +1174,7 @@
       "told": "nobody",
       "told_detail": "Debug log only.",
       "config_key": null,
-      "fix": "Make the model you actually run the configured default, or set model.context_length again after switching.",
+      "fix": "Make the model you actually run the configured default (model.default, model.provider, model.base_url): the pin applies only to that runtime. /usage shows the window in use.",
       "applies": "",
       "issues": [
         "#116467"

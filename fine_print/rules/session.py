@@ -4,10 +4,10 @@ the user's configuration asks for with what Hermes runs with (``SessionEvent``, 
 reported with the response (agent/turn_response_intake.py:101); ``cfg`` reads the user's effective
 config. Every sentence states those values and the v0.23.0 rule of core; none claims which of several
 possible causes applied unless the payload shows it. A rule fires at most once per session by
-construction. ``tool_names`` is often empty (the request preview is cut): empty means unknown.
+construction. A standing fact of a default setup is bookkeeping (severity ``log``); a value the user
+set, or a pin that is not in force, is a ``digest`` line.
 
-The numbers copied from core (v0.23.0) are at the top, with file:line; ``fine_print/constants.py`` is
-lead-owned, so they are listed as a change request in RESULT.md.
+The numbers copied from core (v0.23.0) are at the top, with file:line.
 """
 
 from __future__ import annotations
@@ -31,8 +31,8 @@ CODEX_900K_WINDOW = 900_000
 _CODEX_SNAPSHOT_BASES = ("gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-6-sol", "gpt-6-luna")
 _CODEX_900K_BASES = frozenset({*_CODEX_SNAPSHOT_BASES, "gpt-5.4", "gpt-daybreak-blue-latest", "gpt-6-astra",
                                "gpt-6.1-sol"})
-# tools/tool_search_catalog.py:18-21: the three bridge tools that stand in for deferred tools.
-BRIDGE_TOOLS = frozenset({"tool_search", "tool_describe", "tool_call"})
+# hermes_cli/config_defaults.py:573-576: the shipped default of compression.threshold.
+DEFAULT_THRESHOLD = 0.50
 
 
 def _int(value: Any) -> Optional[int]:
@@ -100,11 +100,13 @@ def threshold_floor(ev: SessionEvent) -> Iterator[Obs]:
     context_compressor.py:2740-2749); compression is off; ``context.engine`` names another engine (the
     floor is the built-in compressor's, agent_init.py:1803-1822); ``compression.model_thresholds`` is
     non-empty (the base is then not the configured ratio). The Codex autoraise to 0.85 stays out of the
-    sentence: it only moves the trigger further up and has its own one-time notice."""
+    sentence: it only moves the trigger further up and has its own one-time notice. With the shipped
+    default (0.50) this is true of nearly every session, so it is bookkeeping; a value the user chose is
+    a digest line."""
     window = ev.context_length
     if ev.is_subagent or not isinstance(window, int) or not 0 < window < SMALL_CTX_WINDOW_LIMIT:
         return
-    configured = _ratio(ev.cfg("compression.threshold", 0.50))
+    configured = _ratio(ev.cfg("compression.threshold", DEFAULT_THRESHOLD))
     if configured is None or not 0 < configured < SMALL_CTX_THRESHOLD_FLOOR:
         return
     if ev.cfg("context.engine", "compressor") not in ("compressor", "", None):
@@ -117,7 +119,8 @@ def threshold_floor(ev: SessionEvent) -> Iterator[Obs]:
         return
     yield Obs("compaction-trigger-floor-and-codex-autoraise",
               numbers={"configured": round(configured, 4), "window": window},
-              subject="compression.threshold", cause=f"{configured}:{window}", severity="digest")
+              subject="compression.threshold", cause=f"{configured}:{window}",
+              severity="log" if configured == DEFAULT_THRESHOLD else "digest")
 
 
 @text("compaction-trigger-floor-and-codex-autoraise")
@@ -171,29 +174,6 @@ def _codex_window(n: dict, s: str, cfg: Cfg):
             f"with up to {n['variant']:,} tokens.", None)
 
 
-# ── tool_search bridge ─────────────────────────────────────────────────────────────────────────────
-@rule("tool-search-defers-mcp-and-plugin-tools", driver="session", core_tells="model", status="fixture")
-def tool_search_active(ev: SessionEvent) -> Iterator[Obs]:
-    """The three bridge tools are in the first request's tool list only when tool search is active
-    (tools/tool_search.py:344-379, assemble_tool_defs: deferrable tools are replaced by the bridge).
-    The bridge is also added, with nothing deferred, when connections are granted (:353-356), so the
-    payload cannot give the number of deferred tools and the text does not. Needs the names: an empty
-    ``tool_names`` is unknown, not 'no tools'."""
-    names = ev.tool_names if isinstance(ev.tool_names, (tuple, list)) else ()
-    if not names or not BRIDGE_TOOLS.issubset({n for n in names if isinstance(n, str)}):
-        return
-    count = ev.tool_count if isinstance(ev.tool_count, int) and ev.tool_count >= len(names) else len(names)
-    yield Obs("tool-search-defers-mcp-and-plugin-tools", numbers={"tools": count},
-              subject="tool_search", cause="bridge", severity="digest")
-
-
-@text("tool-search-defers-mcp-and-plugin-tools")
-def _tool_search_active(n: dict, s: str, cfg: Cfg):
-    return (f"this session offers {n['tools']} tools, among them Hermes's tool_search bridge; tools Hermes "
-            "defers (MCP tools, non-core plugin tools, some built-ins) are reachable only through "
-            "tool_search, not listed directly.", None)
-
-
 # ── resumed session ────────────────────────────────────────────────────────────────────────────────
 @rule("stale-system-prompt-and-pinned-tools-on-resume", driver="session", core_tells="nobody", status="fixture")
 def resumed_session(ev: SessionEvent) -> Iterator[Obs]:
@@ -203,11 +183,12 @@ def resumed_session(ev: SessionEvent) -> Iterator[Obs]:
     (agent/conversation_loop.py:811-868) and re-pins the stored tool list (:749-768); a prompt-refresh
     request or a prompt that no longer matches the runtime rebuilds instead, and the payload cannot show
     which happened. It cannot show that anything was edited either, so the sentence says what a resumed
-    session normally keeps, not that something is out of date. ``None`` (not seen) is unknown."""
+    session normally keeps, not that something is out of date. ``None`` (not seen) is unknown.
+    Bookkeeping only: every continued session is one."""
     if ev.is_subagent or ev.is_first_turn is not False:
         return
     yield Obs("stale-system-prompt-and-pinned-tools-on-resume", numbers={}, subject="resumed",
-              cause="resumed", severity="digest")
+              cause="resumed", severity="log")
 
 
 @text("stale-system-prompt-and-pinned-tools-on-resume")

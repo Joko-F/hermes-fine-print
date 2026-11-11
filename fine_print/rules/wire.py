@@ -105,7 +105,9 @@ def image_gap(ev: WireEvent) -> Iterator[Obs]:
     evictions by core's own text; the other mechanisms above leave no marker, so then only the numbers are
     stated. ``marked`` counts tool results, not images (one result can carry several). ``cause`` is the
     shape of the gap (``evict`` or ``absent`` plus the missing count): the same state on the next request
-    is one observation, a larger gap is a new one."""
+    is one observation, a larger gap is a new one. Severity: a gap that core's own placeholder marks as
+    eviction is a card (pixels the agent loaded are gone from what the model sees, and the user is not
+    told); a gap with no marker has several possible causes and stays a digest line."""
     held = ev.history_images
     if not held:
         return
@@ -118,7 +120,7 @@ def image_gap(ev: WireEvent) -> Iterator[Obs]:
     yield Obs("outbound-image-eviction",
               numbers={"held": len(held), "sent": len(sent), "missing": missing, "marked": marked,
                        "sent_kb": sum(sent) // 1024, "total": len(held), "shown": len(sent)},
-              subject=clean_token(ev.model), cause=f"{kind}:{missing}", severity="digest")
+              subject=clean_token(ev.model), cause=f"{kind}:{missing}", severity="card" if marked else "digest")
 
 
 @text("outbound-image-eviction")

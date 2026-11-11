@@ -79,7 +79,7 @@ def test_chat_request_with_core_placeholders_names_eviction(fp):
     req = [{"role": "user", "content": "go"}] + [chat_tool(i, evicted=i < 8) for i in range(30)]
     (obs,) = send(fp, history(30), req)
     assert obs.numbers == {"held": 30, "sent": 22, "missing": 8, "marked": 8, "sent_kb": 43, "total": 30, "shown": 22}
-    assert obs.severity == "digest" and obs.cause == "evict:8" and obs.subject == "claude-sonnet-5"
+    assert obs.severity == "card" and obs.cause == "evict:8" and obs.subject == "claude-sonnet-5"
     assert line(obs) == ("claude-sonnet-5: 8 of the 30 images in the conversation were not in this request; it carries "
                          f"22 (43 KB encoded). 8 tool results in the request show Hermes's '{PLACEHOLDER}' placeholder.")
 
@@ -103,7 +103,7 @@ def test_without_a_placeholder_only_the_numbers_are_stated(fp):
     sentence must not name eviction."""
     req = [{"role": "user", "content": "go"}] + [{"role": "tool", "tool_call_id": f"c{i}", "content": "shot"} for i in range(5)]
     (obs,) = send(fp, history(5), req)
-    assert obs.cause == "absent:5" and obs.numbers["marked"] == 0
+    assert obs.cause == "absent:5" and obs.numbers["marked"] == 0 and obs.severity == "digest"
     assert line(obs) == "claude-sonnet-5: 5 of the 5 images in the conversation were not in this request; it carries 0."
     assert "placeholder" not in line(obs) and "evict" not in line(obs).lower()
 

@@ -6,7 +6,7 @@ import sqlite3
 
 import pytest
 
-from fine_print.core import FinePrint, _tool_names
+from fine_print.core import FinePrint
 from fine_print.engine import Obs, Registry, image_sizes, rule
 from fine_print.ledger import Ledger
 
@@ -135,7 +135,7 @@ def test_requests_without_a_turn_are_not_attributed(host):
     assert seen == []
 
 
-@pytest.mark.parametrize("field", ["conversation_history", "request_messages", "request", "system_prompt",
+@pytest.mark.parametrize("field", ["conversation_history", "request_messages", "system_prompt",
                                    "api_call_count", "max_tokens", "tool_count"])
 @pytest.mark.parametrize("junk", [None, "x", 3.5, {"a": 1}, True])
 def test_a_request_hook_with_unexpected_types_never_raises(host, field, junk):
@@ -201,16 +201,15 @@ def test_session_rules_run_once_with_the_facts_of_the_first_request(host):
     seen = []
     fp = make(host, seen)
     host.cfg["model.context_length"] = 1_000_000
-    body = {"tools": [{"type": "function", "function": {"name": "read_file"}}, {"type": "function", "name": "tool_search"}]}
     fp.user_turn(session_id="S", turn_id="T1", user_message="hi", conversation_history=[{"role": "user"}],
                  is_first_turn=False, model="main-model", platform="cli")
-    fp.api_request(**request([], [], request={"method": "POST", "body": body}))
+    fp.api_request(**request([], []))
     assert not [e for e in seen if type(e).__name__ == "SessionEvent"]      # not before a response
     fp.api_response(**response())
     (ev,) = [e for e in seen if type(e).__name__ == "SessionEvent"]
-    assert (ev.model, ev.provider, ev.platform, ev.context_length, ev.max_tokens, ev.tool_count, ev.tool_names,
+    assert (ev.model, ev.provider, ev.platform, ev.context_length, ev.max_tokens, ev.tool_count,
             ev.system_prompt_chars, ev.is_first_turn, ev.is_subagent) == \
-        ("main-model", "anthropic", "cli", 200_000, 8192, 31, ("read_file", "tool_search"), 1200, False, False)
+        ("main-model", "anthropic", "cli", 200_000, 8192, 31, 1200, False, False)
     assert [o.rule_id for o in fp.buffer.get("S", "T1").obs if o.rule_id == "t-session"] == ["t-session"]
     fp.api_request(**request([], [], turn_id="T2", tool_count=5))
     fp.api_response(**response(turn_id="T2", context_length=64_000))
@@ -223,7 +222,7 @@ def test_the_session_check_survives_a_response_without_a_request(host):
     fp = make(host, seen)
     fp.api_response(**response())
     (ev,) = [e for e in seen if type(e).__name__ == "SessionEvent"]
-    assert (ev.model, ev.tool_count, ev.tool_names, ev.is_first_turn) == ("main-model", 0, (), None)
+    assert (ev.model, ev.tool_count, ev.is_first_turn) == ("main-model", 0, None)
 
 
 def test_a_subagent_session_is_marked(host):
@@ -241,16 +240,3 @@ def test_deleting_a_session_drops_its_side_state(host):
     fp.api_request(**request([], [], session_id="S2"))
     fp.session_deleted(session_id="S", deleted_ids=["S2"])
     assert not ({"S", "S2"} & (set(fp.session_facts) | set(fp._session_checked) | set(fp.models)))
-
-
-# ── tool names: only when the payload really lists them ─────────────────────────────────────────
-def test_tool_names_from_chat_and_responses_shapes():
-    body = {"tools": [{"type": "function", "function": {"name": "a"}}, {"type": "function", "name": "b"},
-                      {"name": "c", "input_schema": {}}, {"type": "web_search"}, "junk", {"function": {"name": 5}}]}
-    assert _tool_names({"method": "POST", "body": body}) == ("a", "b", "c")
-
-
-@pytest.mark.parametrize("payload", [None, "x", {}, {"body": None}, {"body": {"tools": "all"}},
-                                     {"_truncated": True, "original_type": "dict", "preview": '{"method": "POST", '}])
-def test_a_truncated_or_missing_payload_gives_no_tool_names(payload):
-    assert _tool_names(payload) == ()

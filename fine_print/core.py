@@ -41,21 +41,6 @@ def _put(mapping: dict, key: str, value: Any) -> None:
     mapping[key] = value
 
 
-def _tool_names(request: Any) -> tuple:
-    """Names of the tools listed in a request payload as the hook passes it (``request["body"]["tools"]``,
-    chat or Responses shape); () when the payload does not list them."""
-    body = request.get("body") if isinstance(request, dict) else None
-    tools = body.get("tools") if isinstance(body, dict) else None
-    names = []
-    for tool in tools if isinstance(tools, list) else ():
-        if isinstance(tool, dict):
-            fn = tool.get("function")
-            name = fn.get("name") if isinstance(fn, dict) else tool.get("name")
-            if isinstance(name, str) and name:
-                names.append(name[:80])
-    return tuple(names[:200])
-
-
 def _truthy(value: Any, default: bool = True) -> bool:
     if isinstance(value, bool):
         return value
@@ -212,7 +197,7 @@ class FinePrint:
                     request_messages: Any = None, model: str = "", provider: str = "", api_mode: str = "",
                     api_call_count: Any = 0, retry_count: Any = 0, tool_count: Any = 0,
                     approx_input_tokens: Any = 0, request_char_count: Any = 0, max_tokens: Any = None,
-                    system_prompt: Any = None, platform: str = "", request: Any = None, **_: Any) -> None:
+                    system_prompt: Any = None, platform: str = "", **_: Any) -> None:
         """One request about to be sent. Rules see the two message lists by reference and read
         structure and sizes only; nothing of a request is kept beyond the turn's counters."""
         self.stats["hooks"] += 1
@@ -238,7 +223,7 @@ class FinePrint:
                 if "model" not in facts:     # the first request only; pre_llm_call may have left is_first_turn
                     facts.update(model=ev.model, provider=ev.provider, api_mode=ev.api_mode,
                                  platform=str(platform or ""), max_tokens=ev.max_tokens, tool_count=ev.tool_count,
-                                 tool_names=_tool_names(request), system_prompt_chars=ev.system_prompt_chars)
+                                 system_prompt_chars=ev.system_prompt_chars)
         self._attach(session_id, str(turn_id), self.registry.run("wire", "", ev))
 
     def api_error(self, session_id: str = "", turn_id: str = "", model: str = "", provider: str = "",
@@ -286,7 +271,7 @@ class FinePrint:
             facts = self.session_facts.pop(session_id, {})
         sev = SessionEvent(ev.model or facts.get("model", ""), ev.provider or facts.get("provider", ""),
                            ev.api_mode or facts.get("api_mode", ""), facts.get("platform", ""), ev.context_length,
-                           facts.get("max_tokens"), facts.get("tool_count", 0), facts.get("tool_names", ()),
+                           facts.get("max_tokens"), facts.get("tool_count", 0),
                            facts.get("system_prompt_chars", 0), facts.get("is_first_turn"),
                            session_id in self.parents, self.host.config)
         return self.registry.run("session", "", sev)
