@@ -34,7 +34,7 @@ def _g(value: float) -> str:
 # ── per-rule text ──────────────────────────────────────────────────────────────────────────────────
 def _web_cut(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     line = (f"web_extract · {s}: the model saw {n['shown']:,} of {n['total']:,} chars "
-            f"({_pct(n['shown'], n['total'])}); the middle was cut and no follow-up read was seen this turn.")
+            f"({_pct(n['shown'], n['total'])}); the middle was cut.")
     saved = n.get("saved", 1)
     ask = ("ask the agent to read the rest of that page from its saved copy" if saved
            else "ask the agent to fetch that page again with a larger char_limit")
@@ -95,8 +95,7 @@ def _spill(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
         return (f"{s}: a {n['total']:,}-char result was cut to {n['shown']:,} chars and the rest could not be "
                 "saved anywhere.",
                 "ask the agent to rerun it with narrower output (a filter, a range, or a redirect to a file).")
-    return (f"{s}: a {n['total']:,}-char result was replaced by a {n['shown']:,}-char preview and a saved "
-            "file; no read of that file was seen this turn.",
+    return (f"{s}: a {n['total']:,}-char result was replaced by a {n['shown']:,}-char preview and a saved file.",
             "ask the agent to page through the saved output (read_file offset/limit) or process it with "
             "execute_code. The threshold scales with the model's context window.")
 
@@ -254,6 +253,8 @@ def render(groups: list, more: int, *, core_tells_of: Callable[[str], str], cfg:
         line, fix = describe(worst.rule_id, worst.numbers, worst.subject, cfg)
         if len(members) > 1:
             line += f" (+{len(members) - 1} more like it)"
+        if worst.recover:            # a bullet exists only when none of its follow-ups was seen
+            line += " No follow-up was seen this turn."
         who = told(core_tells_of(worst.rule_id), worst.noted)
         lines.append(f"• {line}{' ' + who if who else ''}")
         lines.append(f"  Fix: {fix}")

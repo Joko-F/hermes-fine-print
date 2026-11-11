@@ -20,8 +20,8 @@ def test_long_line_recovery_requires_code_not_another_line_offset():
     found = _fixture_obs("read_file_long_line_clamp.json")
     assert len(found) == 1
     obs = found[0]
-    assert obs.severity == "card"
-    assert obs.numbers == {"marked": 2, "prefix_max": 2000}
+    assert obs.severity == "digest"              # 2 of 6 lines cut: the size of the loss is unknown, no card
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 6}
     assert not any(r.satisfied([Call("read_file", {"path": "long_lines.txt", "offset": 2})])
                    for r in obs.recover)
     for tool in ("execute_code", "terminal"):
@@ -68,21 +68,9 @@ def test_identical_result_stub_is_commit_only_and_informational():
     row = CommitRow("terminal", data["args"], data["committed"], len(data["result"]))
     found = [o for o in REGISTRY.run("commit", "terminal", row) if o.rule_id == data["limit_id"]]
     assert len(found) == 1
-    assert found[0].severity == "digest"
+    assert found[0].severity == "log"            # lossless within the turn: never a card, never counted
     assert not found[0].recover
     assert found[0].numbers["total"] == len(data["result"])
-
-
-def test_unchanged_stub_is_digest_without_claiming_the_earlier_read_was_spilled():
-    found = _fixture_obs("files_read_dedup_second.json")
-    assert len(found) == 1
-    obs = found[0]
-    assert obs.severity == "digest"
-    assert obs.note is None
-    line, fix = describe(obs.rule_id, obs.numbers, obs.subject, lambda key, default: default)
-    assert "0 content chars" in line
-    assert "spilled" not in line
-    assert "different limit" in fix
 
 
 def test_hidden_match_probe_is_digest_and_reports_only_the_probed_subset():
@@ -104,9 +92,10 @@ def test_redaction_does_not_turn_a_visible_prefix_length_into_a_guessed_cap():
     found = _fixture_obs("files_long_line_redacted.json")
     assert len(found) == 1
     obs = found[0]
-    assert obs.numbers == {"marked": 2, "prefix_max": 2000}
+    assert obs.numbers == {"marked": 2, "prefix_max": 2000, "lines": 2}
+    assert obs.severity == "card"                # every line the model received was cut
     line, _ = TEXT[obs.rule_id](obs.numbers, obs.subject, lambda key, default: default)
-    assert "prefix" in line and "cut at" not in line
+    assert "all 2 lines returned were cut" in line and "prefix" in line and "cut at" not in line
 
 
 def test_spill_path_shapes_and_single_owner_for_a_clamped_read():
@@ -129,3 +118,38 @@ def test_texts_use_the_catalogue_fix_where_none_is_given():
     for rule_id in ("long-line-clamps", "spill-format-dead-end-v0.23", "execute-code-timeout-call-cap"):
         line, fix = describe(rule_id, {"marked": 1, "prefix_max": 2000, "timeout": 300}, "x", lambda k, d: d)
         assert line and fix and not fix.startswith("see /limits")
+
+
+def test_a_one_line_cached_web_page_has_one_owner():
+    """read_file of a cached web copy that is one clamped line: the web rule reports it, the
+    general long-line rule stays silent; a many-line cached page with a cut line is the general rule's."""
+    data = json.loads((FIXTURES / "webmcp_web_recovery_clamped.json").read_text())
+    found = REGISTRY.run("tool", "read_file", ToolEvent("read_file", data["args"], data["result"]))
+    assert [o.rule_id for o in found] == ["web_extract.pdf_from_url"]
+    many = json.loads(data["result"])
+    many["total_lines"] = 40
+    found = REGISTRY.run("tool", "read_file", ToolEvent("read_file", data["args"], json.dumps(many)))
+    assert [o.rule_id for o in found] == ["long-line-clamps"]
+
+
+def test_long_line_text_says_how_much_of_the_read_was_cut():
+    say = lambda numbers: TEXT["long-line-clamps"](numbers, "a.json", lambda key, default: default)[0]
+    assert "the only line returned was cut" in say({"marked": 1, "prefix_max": 2000, "lines": 1})
+    assert "2 of 6 lines returned were cut" in say({"marked": 2, "prefix_max": 2000, "lines": 6})
+    assert "1 of 40 lines returned was cut" in say({"marked": 1, "prefix_max": 2000, "lines": 40})
+    assert "1 line came back cut" in say({"marked": 1, "prefix_max": 2000})        # rows logged before `lines` existed
+
+
+def test_terminal_window_is_a_card_only_when_under_half_of_the_output_was_kept():
+    data = json.loads((FIXTURES / "terminal_output_window.json").read_text())
+    found = REGISTRY.run("tool", "terminal", ToolEvent("terminal", data["args"], data["result"]))
+    assert [o.severity for o in found] == ["card"] and 2 * found[0].numbers["shown"] < found[0].numbers["total"]
+    # the same capture with most of the output kept: 49,841 shown of 60,000
+    obj = json.loads(data["result"])
+    total, kept = obj["output_total_chars"], 60_000
+    for key in ("output", "truncation_note"):
+        obj[key] = obj[key].replace(f"{total:,}", f"{kept:,}").replace(f"{total - found[0].numbers['shown']:,}",
+                                                                      f"{kept - found[0].numbers['shown']:,}")
+    obj["output_total_chars"] = kept
+    found = REGISTRY.run("tool", "terminal", ToolEvent("terminal", data["args"], json.dumps(obj)))
+    assert [o.severity for o in found] == ["digest"]

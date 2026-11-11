@@ -192,7 +192,10 @@ class _Session:
 
 # ── text ───────────────────────────────────────────────────────────────────────────────────────────
 def _share(part: int, whole: int) -> str:
-    return f"{round(100 * part / whole)}%" if whole else "0%"
+    if not whole or not part:
+        return "0%"
+    pct = round(100 * part / whole)
+    return f"{pct}%" if pct else "under 1%"
 
 
 def _followed(records: list[dict]) -> tuple[int, int]:
@@ -247,10 +250,30 @@ def _lines(rules: dict) -> Iterator[str]:
     if r:
         dropped = sum(x["numbers"]["dropped"] for x in r)
         yield f"• web_extract was asked for more than 5 URLs {len(r):,} times: {dropped:,} URLs were never fetched."
+    r = rules.get("long-line-clamps")
+    if r:
+        whole = [x for x in r if x["numbers"].get("marked", 0) >= x["numbers"].get("lines", 1 << 30)]
+        in_turn, ever = _followed(whole)
+        yield (f"• read_file returned lines cut at the line-length cap {len(r):,} times; in {len(whole):,} of them "
+               "every line returned was cut (one-line JSON, minified files)"
+               + (f", and a follow-up with terminal or execute_code was seen for {_share(in_turn, len(whole))} "
+                  "within the turn." if whole else "."))
+    r = rules.get("terminal-capture-window-and-timeout")
+    if r:
+        window = [x for x in r if x["numbers"].get("kind") != "timeout"]
+        small = sum(1 for x in window if 2 * x["numbers"]["shown"] < x["numbers"]["total"])
+        in_turn, ever = _followed(window)
+        if window:
+            yield (f"• terminal output was captured as head + tail {len(window):,} times ({small:,} kept under half "
+                   f"of the output); a read of the saved log followed for {_share(in_turn, len(window))} within the turn.")
     known = {"web_extract.head_tail_truncation", "native-embed-downscale-1568", "web_search.rescue_nested_error",
-             "search-files-silent-page-cap", "tool_result.spill_trap", "web_extract.url_cap_5"}
+             "search-files-silent-page-cap", "tool_result.spill_trap", "web_extract.url_cap_5",
+             "long-line-clamps", "terminal-capture-window-and-timeout"}
+    from . import catalog
     for rule_id in sorted(set(rules) - known):
-        yield f"• {rule_id}: {len(rules[rule_id]):,}"
+        entry = catalog.get(rule_id) or {}
+        n = len(rules[rule_id])
+        yield f"• {entry.get('title') or rule_id}: {n:,} time{'' if n == 1 else 's'} (/limits explain {rule_id})."
 
 
 def render_report(result: dict, days: int) -> str:

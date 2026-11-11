@@ -227,3 +227,21 @@ def test_limit_advice_depends_on_the_spill_threshold_of_the_session(fp, host):
     run_tool(fp, "web_extract", {"urls": ["https://example.com/b"]}, long_page.replace("/a", "/b"), session="s2")
     card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
     assert "hermes config set web.extract_char_limit 55000" in card
+
+
+def test_a_line_states_the_fact_and_only_the_card_bullet_speaks_of_follow_ups(fp, host):
+    """/limits tags a hit with its state, so the line itself must not say "no follow-up" (a hit the
+    model did follow up would then contradict its own tag)."""
+    from fine_print.cards import describe
+    numbers = {"shown": 14_983, "total": 24_116, "head": 11_000, "tail": 3_983, "saved": 1}
+    line, _fix = describe("web_extract.head_tail_truncation", numbers, "example.com", lambda key, default: default)
+    assert "follow-up" not in line and line.endswith("the middle was cut.")
+    line, _fix = describe("tool_result.spill_trap", {"shown": 1_500, "total": 150_000}, "terminal", lambda k, d: d)
+    assert "seen" not in line
+    run_tool(fp, "web_extract", {"urls": ["https://example.com/a"]}, web_result())
+    card = fp.turn_end(session_id="s1", turn_id="t1", platform="cli")
+    assert "the middle was cut. No follow-up was seen this turn. Hermes told the model, not you." in card
+    page = json.dumps({"total_count": 50, "matches": [1] * 50})
+    run_tool(fp, "search_files", {"pattern": "a"}, page, session="s2")
+    card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
+    assert card.count("No follow-up was seen this turn.") == 1

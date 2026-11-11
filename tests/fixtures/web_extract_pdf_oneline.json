@@ -34,8 +34,9 @@
     "note": "head not snapped (no newline); footer offset is 2 but the saved file has 1 line -> read_file offset=2 is past EOF",
     "read_file_offset_past_eof": true
   },
-  "expect": "hit",
+  "expect": "miss",
   "limit_id": "web_extract.pdf_from_url",
   "source": "tools/web_tools_truncate.py:86-128 (_truncate_with_footer), :153-186 (_truncate_results); tools/web_tools.py:~439-476 (web_extract_tool)",
-  "synthetic_by_hand": false
+  "synthetic_by_hand": false,
+  "expect_reason": "The web_extract result of a one-line page is byte-identical to that of a many-line page (fixture webmcp_web_recovery_hook_ambiguous), so no rule may fire here. The limit is detected on the read_file call that fails on the saved copy (read_file_footer_* fixtures)."
 }

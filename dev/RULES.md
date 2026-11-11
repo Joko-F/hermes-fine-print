@@ -58,7 +58,8 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
   - `note`: one neutral, third-person sentence for the model, at most 200 characters, stating the
     fact and the existing lever. No imperatives addressed to the model.
 - **Text (P5).** `(line, fix)`: the line says what happened with before and after numbers and claims
-  only what was observed ("no follow-up read was seen", not "never read"); the fix is a `hermes config
+  only what was observed, with no word on follow-ups (the card adds "No follow-up was seen this turn."
+  to a bullet that has `recover` predicates; `/limits` tags each hit with its state); the fix is a `hermes config
   set <key> <value>` command with a real key, a concrete workaround, or "Hardcoded in v0.23.0."
   Return `None` as the fix to use the fix of the limit's catalogue entry. Every number comes from the observation, `constants.py` or the live config (`cfg(key,
   default)`). Never advise switching a safety feature off, never tell the user to edit the config

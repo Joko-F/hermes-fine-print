@@ -8,6 +8,7 @@ from typing import Iterator
 from ..cards import Cfg, text
 from ..engine import CommitRow, Obs, Recover, ToolEvent, rule
 from ..signals import basename, safe_label, strip_untrusted
+from .webmcp import WEB_CACHE_PATH
 
 # tools/file_operations.py:488-502, :813-819: the flag belongs to the read result;
 # the marker belongs at the end of a numbered content line. The cap is configurable.
@@ -36,10 +37,6 @@ _IDENTICAL_STUB = re.compile(
     r"\A\[hermes note: this result is byte-identical to the ([A-Za-z0-9_.:-]+) "
     r"result earlier this turn(?: \(tool_call_id ([^\s)]+)\))?\. "
     r"Refer to that result; it has not changed\. Args: [^\r\n]*\](?=\n|\Z)")
-# tools/file_tools_write_guards.py:554-557; emitted by tools/file_tools.py:525-531.
-_UNCHANGED_MESSAGE = (
-    "File unchanged since last read. The content from the earlier read_file result in this "
-    "conversation is still current — refer to that instead of re-reading.")
 # tools/file_operations_search.py:883-885, :912-922, :1299-1306. The
 # count-only probe reads at most 50 output rows, so these are not global totals.
 _HIDDEN_PROBE = re.compile(
@@ -51,7 +48,11 @@ def _spill_path(path: str) -> bool:
     return bool(_SPILL_PATH.fullmatch(path.replace("\\", "/")))
 
 
-def _clamped(obj: dict) -> tuple[int, int] | None:
+_NUMBERED_LINE = re.compile(r"^\d+\|", re.M)
+
+
+def _clamped(obj: dict) -> tuple[int, int, int] | None:
+    """(marked lines, longest kept prefix, lines returned) of a read whose lines were cut."""
     if obj.get("truncated_lines") is not True or not isinstance(obj.get("content"), str):
         return None
     lengths = [len(m.group(1)) for m in _CLAMPED_LINE.finditer(obj["content"])]
@@ -59,34 +60,49 @@ def _clamped(obj: dict) -> tuple[int, int] | None:
         return None
     # Redaction runs after clipping and can shorten a prefix. A literal marker
     # may also occur in a file, so count marked lines, not purported original lengths.
-    return len(lengths), max(lengths)
+    return len(lengths), max(lengths), len(_NUMBERED_LINE.findall(obj["content"]))
 
 
-@rule("long-line-clamps", driver="tool", tools={"read_file"}, core_tells="model", status="fixture")
+@rule("long-line-clamps", driver="tool", tools={"read_file"}, core_tells="model", status="verified")
 def long_lines(ev: ToolEvent) -> Iterator[Obs]:
     path = str(ev.args.get("path") or "")
     if _spill_path(path):
         return  # The spill-read rule owns the same clipping fact in this directory.
-    clipped = _clamped(ev.json or {})
+    obj = ev.json or {}
+    if obj.get("total_lines") == 1 and WEB_CACHE_PATH.search(path):
+        return  # A one-line cached web page belongs to web_extract.pdf_from_url (rules/webmcp.py).
+    clipped = _clamped(obj)
     if clipped is None:
         return
-    count, prefix_max = clipped
+    count, prefix_max, lines = clipped
     name = basename(path)
-    yield Obs("long-line-clamps", numbers={"marked": count, "prefix_max": prefix_max},
+    # Core does not report how long a cut line was, so the size of the loss is unknown. A card only
+    # when every line the model received was cut (a one-line JSON, a minified file); one long line
+    # in an otherwise readable file is logged.
+    yield Obs("long-line-clamps", numbers={"marked": count, "prefix_max": prefix_max, "lines": lines},
               subject=safe_label(path), cause=path,
               recover=(Recover.names(name, ("execute_code", "terminal")),) if name else (),
-              severity="card")
+              severity="card" if count >= lines else "digest")
 
 
 @text("long-line-clamps")
 def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
-    return (f"read_file · {s}: {n['marked']} line(s) came back cut with a '... [truncated]' marker "
-            f"(longest kept prefix {n['prefix_max']:,} chars); the rest of each line was not returned.",
+    marked, lines = n["marked"], n.get("lines", 0)
+    if marked == lines == 1:
+        which = "the only line returned was"
+    elif lines and marked >= lines:
+        which = f"all {marked:,} lines returned were"
+    elif lines:
+        which = f"{marked:,} of {lines:,} lines returned {'was' if marked == 1 else 'were'}"
+    else:
+        which = f"{marked:,} line{'' if marked == 1 else 's'} came back"
+    return (f"read_file · {s}: {which} cut with a '... [truncated]' marker (longest kept prefix "
+            f"{n['prefix_max']:,} chars); the rest of each cut line was not returned.",
             None)
 
 
 @rule("terminal-capture-window-and-timeout", driver="tool", tools={"terminal"},
-      core_tells="model", status="fixture")
+      core_tells="model", status="verified")
 def terminal_window(ev: ToolEvent) -> Iterator[Obs]:
     obj = ev.json or {}
     output = obj.get("output")
@@ -110,8 +126,10 @@ def terminal_window(ev: ToolEvent) -> Iterator[Obs]:
     omitted = int(cut.group(1).replace(",", ""))
     if not 0 < omitted < total:
         return
+    # Head and tail are usually what matters in a build log: a card only when under half was kept.
     yield Obs("terminal-capture-window-and-timeout", numbers={"shown": total - omitted, "total": total},
-              subject="terminal", cause=path, recover=(Recover.names(basename(path)),), severity="card")
+              subject="terminal", cause=path, recover=(Recover.names(basename(path)),),
+              severity="card" if 2 * omitted > total else "digest")
 
 
 @text("terminal-capture-window-and-timeout")
@@ -135,7 +153,7 @@ def spill_read_clamped(ev: ToolEvent) -> Iterator[Obs]:
     clipped = _clamped(ev.json or {})
     if clipped is None:
         return
-    count, prefix_max = clipped
+    count, prefix_max, _lines = clipped
     name = basename(path)
     yield Obs("spill-format-dead-end-v0.23", numbers={"marked": count, "prefix_max": prefix_max},
               subject=safe_label(path), cause=path, recover=(Recover.names(name, ("execute_code", "terminal")),),
@@ -186,37 +204,15 @@ def identical_stub(row: CommitRow) -> Iterator[Obs]:
     numbers = {"shown": len(content), "minimum": _IDENTICAL_MIN_CHARS}
     if type(row.raw_len) is int and row.raw_len >= _IDENTICAL_MIN_CHARS and row.raw_len > len(content):
         numbers["total"] = row.raw_len
+    # Informational: the earlier copy is in the same turn's context, so nothing is lost. Logged only.
     yield Obs("identical-result-stub", numbers=numbers, subject=row.tool,
-              cause=f"{row.tool}:{match.group(2) or row.args}", severity="digest")
+              cause=f"{row.tool}:{match.group(2) or row.args}", severity="log")
 
 
 @text("identical-result-stub")
 def _identical_stub(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
     original = f"{n['total']:,}" if "total" in n else f"at least {n['minimum']:,}"
     return (f"{s}: a repeated {original}-char result was committed as a {n['shown']:,}-char reference to the earlier result.",
-            None)
-
-
-@rule("read-dedup-stub-after-spill", driver="tool", tools={"read_file"},
-      core_tells="model", status="fixture")
-def read_unchanged(ev: ToolEvent) -> Iterator[Obs]:
-    """One row proves deduplication, not that the earlier content was unavailable."""
-    obj = ev.json or {}
-    if (obj.get("status") != "unchanged" or obj.get("dedup") is not True
-            or obj.get("content_returned") is not False or obj.get("message") != _UNCHANGED_MESSAGE
-            or "content" in obj):
-        return
-    path = obj.get("path")
-    if not isinstance(path, str) or not path or path != ev.args.get("path"):
-        return
-    yield Obs("read-dedup-stub-after-spill", numbers={"shown": 0}, subject=safe_label(path),
-              cause=f"{path}:{ev.args.get('offset', 1)}:{ev.args.get('limit', 2000)}", severity="digest")
-
-
-@text("read-dedup-stub-after-spill")
-def _read_unchanged(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
-    return (f"read_file · {s}: a repeated read returned an 'unchanged' stub with {n['shown']} content chars, "
-            "pointing at the earlier read.",
             None)
 
 

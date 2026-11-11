@@ -16,7 +16,7 @@ _SEARCH_CAP = 20
 _STORED_PAGE_CAP = 2_000_000
 
 # tools/web_tools_truncate.py:67-69; tools/file_operations.py:488-502.
-_WEB_CACHE_PATH = re.compile(r'(?:\A|/)cache/web/[a-zA-Z0-9_.-]+-[0-9a-f]{10}\.md\Z')
+WEB_CACHE_PATH = re.compile(r'(?:\A|/)cache/web/[a-zA-Z0-9_.-]+-[0-9a-f]{10}\.md\Z')
 _PAST_EOF = re.compile(r'Note: offset (\d+) is beyond the end of the file \(1 lines total\)\. '
                        r'Retry with offset <= 1\.\Z')
 _CLAMPED_WEB_LINE = re.compile(r'1\|([^\n]*)\.\.\. \[truncated\]\Z')
@@ -26,7 +26,7 @@ _CLAMPED_WEB_LINE = re.compile(r'1\|([^\n]*)\.\.\. \[truncated\]\Z')
 def web_copy_recovery(ev: ToolEvent) -> Iterator[Obs]:
     """Only the observed recovery failures, never an inference from a PDF URL or missing text."""
     path = ev.args.get('path')
-    if not isinstance(path, str) or not _WEB_CACHE_PATH.search(path):
+    if not isinstance(path, str) or not WEB_CACHE_PATH.search(path):
         return
     obj = ev.json
     if obj is None or type(obj.get('total_lines')) is not int or obj['total_lines'] != 1:
@@ -154,7 +154,7 @@ def stored_copy_cap(ev: ToolEvent) -> Iterator[Obs]:
         total = footer['total']
         url = str(row.get('url') or '')
         yield Obs('web-extract-stored-copy-2m-cap', numbers={'shown': _STORED_PAGE_CAP, 'total': total},
-                  subject=url_host(url) or basename(footer['path']), cause=url or footer['path'],
+                  subject=url_host(url) or safe_label(footer['path']), cause=url or footer['path'],
                   severity='card' if _STORED_PAGE_CAP < 0.8 * total else 'digest',
                   note=(f'web_extract saved only the first {_STORED_PAGE_CAP:,} of {total:,} source chars; '
                         'the saved copy is not complete. A direct download can preserve the rest.'))

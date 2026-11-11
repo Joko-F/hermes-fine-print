@@ -12,7 +12,7 @@ makes them visible the moment they shape an answer.
 
 ## What the author's own history says
 
-The detectors were replayed over the author's own Hermes history: 102,786 tool results in 1,098
+The detectors were replayed over the author's own Hermes history: 103,081 tool results in 1,101
 sessions over two months (`dev/replay.py`, read-only, aggregates only; measured 2026-11-11).
 
 | What happened | How often | What the model did next |
@@ -21,13 +21,16 @@ sessions over two months (`dev/replay.py`, read-only, aggregates only; measured 
 | An image was downscaled before the model saw it | 1,009 images; median **4x** fewer pixels, up to 28x | a region zoom on the same image followed for 5% |
 | `search_files` returned a full page with no "more" flag | 626 times | the same search was continued in under 1% |
 | `web_search` was answered by the keyless free tier, not the configured backend | 210 times, 23 of them empty | nothing to do: the result says "success" |
+| `read_file` cut lines at the line-length cap | 185 reads; in 54 of them every line returned was cut (one-line JSON, minified files) | a follow-up with terminal or execute_code was seen for 26% of those 54 |
+| `terminal` output was captured as head + tail | 106 times; 36 kept under half of the output | a read of the saved log followed for 13% |
 | A tool result was replaced by a 1,500-char preview and a saved file | 41 times | a read of the saved file followed for 95% |
 
-Hermes told the user about none of these. For the first two it does tell the model, and a follow-up is
-seen about one time in five or less. So the product is built around three things: a card for the user
-when no follow-up was seen, a note for the model only where core tells nobody, and a report over your
-own history. "Follow-up" is evidence, not proof: a later successful call of a tool that can fetch the
-missing part, aimed at the same target.
+Hermes told the user about none of these. For most of them it does tell the model, and outside the last
+row a follow-up is seen about one time in four or less. So the product is built around three things: a
+card for the user when no follow-up was seen, a note for the model only where core tells nobody, and a
+report over your own history. "Follow-up" is evidence, not proof: a later successful call of a tool that
+can fetch the missing part, aimed at the same target. With these rules, 375 of the 3,483 turns that had
+tool calls (11%) would have ended with a card.
 
 ## What you get
 
@@ -36,7 +39,7 @@ true: a limit bit, no follow-up by the model was seen within the turn, and there
 
 ```
 Fine Print · 1 silent limit hit this turn
-• web_extract · example.com: the model saw 14,983 of 24,116 chars (62%); the middle was cut and no follow-up read was seen this turn. Hermes told the model, not you.
+• web_extract · example.com: the model saw 14,983 of 24,116 chars (62%); the middle was cut. No follow-up was seen this turn. Hermes told the model, not you.
   Fix: ask the agent to read the rest of that page from its saved copy, or `hermes config set web.extract_char_limit 25000` (read on the next call).
 details: /limits
 ```
@@ -87,15 +90,29 @@ confirms it is running.
 |---|---|---|---|
 | `tool_result.spill_trap` | commit driver | the model | verified |
 | `compaction-stubs-old-tool-results-before-summary` | compaction driver | the model and the user | verified |
+| `long-line-clamps` | tool driver | the model | verified |
 | `native-embed-downscale-1568` | tool driver | the model | verified |
 | `search-files-silent-page-cap` | tool driver | nobody | verified |
+| `terminal-capture-window-and-timeout` | tool driver | the model | verified |
 | `web_extract.head_tail_truncation` | tool driver | the model | verified |
 | `web_search.rescue_nested_error` | tool driver | the model | verified |
+| `identical-result-stub` | commit driver | the model | fixture-only |
 | `deterministic-fallback-summary` | compaction driver | the model and the user | fixture-only |
 | `codex-incomplete-ladder` | response driver | the model and the user | fixture-only |
 | `output-cap-and-length-continuation` | response driver | the model and the user | fixture-only |
+| `browser-exec-stderr-head-only` | tool driver | the model | fixture-only |
+| `execute-code-timeout-call-cap` | tool driver | the model | fixture-only |
 | `office-extraction-silent-loss` | tool driver | nobody | fixture-only |
+| `search-skips-hidden-ignored` | tool driver | the model | fixture-only |
+| `session-search-recovery-cap-4k` | tool driver | the model | fixture-only |
+| `spill-format-dead-end-v0.23` | tool driver | the model | fixture-only |
+| `subagent-image-repeat-cap` | tool driver | the model | fixture-only |
+| `subagent-summary-budget` | tool driver | the model | fixture-only |
+| `web-extract-stored-copy-2m-cap` | tool driver | nobody | fixture-only |
+| `web_extract.batch_timeout` | tool driver | the model | fixture-only |
+| `web_extract.pdf_from_url` | tool driver | the model | fixture-only |
 | `web_extract.url_cap_5` | tool driver | nobody | fixture-only |
+| `web_search.caps_and_snippets` | tool driver | nobody | fixture-only |
 | `empty-response-retries` | turn driver | the user | fixture-only |
 | `turn-and-subagent-caps` | turn driver | the model and the user | fixture-only |
 
@@ -110,7 +127,10 @@ What the verified detectors read: the footer at the end of each cut `web_extract
 of `vision_analyze` and which trigger fired (the 1568 px edge or the byte budget); the page size of a
 `search_files` result per output mode, with no `truncated` key; the `data.rescued_from` /
 `data.fallback_from` key of a `web_search` result; the `<persisted-output>` block at the start of a
-committed row; the counts `post_compaction` reports (kind, token estimates, messages removed).
+committed row; the `truncated_lines` flag of a `read_file` result with its marked lines (a card only
+when every line returned was cut); the `output_total_chars` and truncation notice of a `terminal`
+result (a card only when under half of the output was kept); the counts `post_compaction` reports
+(kind, token estimates, messages removed).
 
 ## How it works
 
@@ -177,7 +197,7 @@ What a user should know before installing (catalog rule 13):
 
 ## All catalogued limits
 
-75 limits of Hermes v0.23.0; 13 have a live detector in this version, the rest are explained by `/limits explain <id>`. Generated by `dev/readme_table.py`.
+75 limits of Hermes v0.23.0; 27 have a live detector in this version, the rest are explained by `/limits explain <id>`. Generated by `dev/readme_table.py`.
 
 | Topic | Limit | Hermes tells | Fine Print |
 |---|---|---|---|
@@ -186,15 +206,15 @@ What a user should know before installing (catalog rule 13):
 | context | `lean-tail-small-verbatim-window-after-compaction`: After compaction only a small recent tail stays verbatim | model | reference |
 | context | `memory-caps-frozen-snapshot-and-blocked-entries`: Built-in memory: 2,200 + 1,375 chars, frozen per session | model | reference |
 | context | `model-name-gated-guidance`: Prompt guidance blocks depend on substrings in the model name | nobody | reference |
-| context | `session-search-recovery-cap-4k`: session_search returns at most 4,000 chars of a stored message | model | reference |
+| context | `session-search-recovery-cap-4k`: session_search returns at most 4,000 chars of a stored message | model | live, fixture-only |
 | context | `skill-index-description-clip-and-hiding`: The skill index clips each description to 60 chars | model | reference |
 | context | `stale-system-prompt-and-pinned-tools-on-resume`: Edits to SOUL.md, AGENTS.md and skills do not reach a resumed session | nobody | reference |
 | context | `summarizer-input-capped-and-sampled`: The compaction summary is written from a truncated view | nobody | reference |
-| files | `long-line-clamps`: read_file cuts every line at 2,000 characters | model | reference |
+| files | `long-line-clamps`: read_file cuts every line at 2,000 characters | model | live, verified |
 | files | `office-extraction-silent-loss`: .xlsx and .docx files are read partially, with no note | nobody | live, fixture-only |
 | files | `read-dedup-stub-after-spill`: Re-reading a file can return an 'unchanged' stub with no content | model | reference |
 | files | `search-files-silent-page-cap`: search_files returns up to 50 matches and never says there are more | nobody | live, verified |
-| files | `search-skips-hidden-ignored`: Content search skips hidden and gitignored files | model | reference |
+| files | `search-skips-hidden-ignored`: Content search skips hidden and gitignored files | model | live, fixture-only |
 | files | `secret-redaction-sentinels`: Secret-like values in tool output are masked | nobody | reference |
 | images | `413-triggers-compaction-not-shrink`: A 413 from a large image compacts history instead of shrinking it | user | reference |
 | images | `aux-vision-substitution`: A helper vision model describes images; the main model sees only text | both | reference |
@@ -210,7 +230,7 @@ What a user should know before installing (catalog rule 13):
 | images | `outbound-image-eviction`: Old tool images are dropped from requests in batches of 8 | model | reference |
 | images | `provider-reject-shrink-ladder`: After a size rejection every large image in the request is shrunk | user | reference |
 | images | `sticky-list-tool-content-downgrade`: One tool-image rejection turns later screenshots into text | user | reference |
-| images | `subagent-image-repeat-cap`: Subagents may load the same image only 3 times per session | model | reference |
+| images | `subagent-image-repeat-cap`: Subagents may load the same image only 3 times per session | model | live, fixture-only |
 | images | `surface-attach-byte-caps`: Image attach size limits differ between TUI, Desktop and CLI | user | reference |
 | images | `telegram-photo-compression`: Telegram compresses photos; full quality needs a file attachment | nobody | reference |
 | images | `video-aux-only`: Video is always described by the helper model and capped at 50 MB | model | reference |
@@ -228,33 +248,33 @@ What a user should know before installing (catalog rule 13):
 | settings | `context-length-pin-ignored`: model.context_length is dropped after /model or -m | nobody | reference |
 | settings | `tool-output-limits-process-cached`: Tool output limits are cached for the whole process | nobody | reference |
 | tools | `bg-process-rolling-200k`: Background process logs keep only the last 200,000 chars | model | reference |
-| tools | `browser-exec-stderr-head-only`: browser_exec keeps only the first 4,000 chars of stderr | model | reference |
+| tools | `browser-exec-stderr-head-only`: browser_exec keeps only the first 4,000 chars of stderr | model | live, fixture-only |
 | tools | `browser.idle_session_reap`: Idle browser sessions are closed after 120 seconds | nobody | reference |
 | tools | `execute-code-fd-output-head-only`: execute_code drops OS-level subprocess output past a cap, with no note | nobody | reference |
-| tools | `execute-code-timeout-call-cap`: An execute_code timeout kills the kernel and loses all variables | model | reference |
+| tools | `execute-code-timeout-call-cap`: An execute_code timeout kills the kernel and loses all variables | model | live, fixture-only |
 | tools | `hook-context-spill-and-hook-payload-cap`: Plugin hook context over 10,000 chars is spilled to a preview | model | reference |
-| tools | `identical-result-stub`: Repeated identical tool results are replaced by a reference note | model | reference |
+| tools | `identical-result-stub`: Repeated identical tool results are replaced by a reference note | model | live, fixture-only |
 | tools | `mcp-result-caps`: MCP results over 50,000 chars are spilled to a preview | model | reference |
-| tools | `spill-format-dead-end-v0.23`: A spilled JSON tool result cannot be paged as Hermes advises | model | reference |
-| tools | `subagent-summary-budget`: Subagents return only their final text, cut to a size budget | model | reference |
-| tools | `terminal-capture-window-and-timeout`: Foreground terminal output keeps 40% head and 60% tail | model | reference |
+| tools | `spill-format-dead-end-v0.23`: A spilled JSON tool result cannot be paged as Hermes advises | model | live, fixture-only |
+| tools | `subagent-summary-budget`: Subagents return only their final text, cut to a size budget | model | live, fixture-only |
+| tools | `terminal-capture-window-and-timeout`: Foreground terminal output keeps 40% head and 60% tail | model | live, verified |
 | tools | `tool-search-defers-mcp-and-plugin-tools`: MCP and plugin tools are hidden behind tool_search | model | reference |
 | tools | `tool-silently-dropped-when-check_fn-fails`: A tool whose availability check fails silently disappears | nobody | reference |
 | tools | `tool_result.spill_trap`: Large tool results are replaced by a 1,500-char preview | model | live, verified |
 | tools | `turn-and-subagent-caps`: Agent turns and subagents stop at iteration caps | both | live, fixture-only |
 | web | `native-web-search-swap`: Provider-side web search replaces Hermes's own web tools | nobody | reference |
-| web | `web-extract-stored-copy-2m-cap`: The saved 'full text' of a web page is cut at 2,000,000 chars | model | reference |
+| web | `web-extract-stored-copy-2m-cap`: The saved 'full text' of a web page is cut at 2,000,000 chars | model | live, fixture-only |
 | web | `web.cache_served_silently`: Cached web results are served without a freshness label | nobody | reference |
 | web | `web.keyless_ring_rotation`: Without web keys each request goes to a different free service | nobody | reference |
-| web | `web_extract.batch_timeout`: web_extract timeout covers the whole batch, not each URL | model | reference |
+| web | `web_extract.batch_timeout`: web_extract timeout covers the whole batch, not each URL | model | live, fixture-only |
 | web | `web_extract.ddgs_autodetect_dead`: With ddgs installed and no keys, web_extract always fails | model | reference |
 | web | `web_extract.head_tail_truncation`: web_extract keeps only the head and tail of long pages | model | live, verified |
-| web | `web_extract.pdf_from_url`: PDF links lose their middle: methods and results are cut | model | reference |
+| web | `web_extract.pdf_from_url`: PDF links lose their middle: methods and results are cut | model | live, fixture-only |
 | web | `web_extract.perplexity_snippets`: The perplexity extract backend returns passages, not whole pages | nobody | reference |
 | web | `web_extract.silent_keyless_rescue`: A failed web_extract is re-served silently by a free keyless backend | nobody | reference |
 | web | `web_extract.thin_content_success`: JS-only or bot-walled pages come back as short 'successful' text | nobody | reference |
 | web | `web_extract.url_cap_5`: web_extract fetches only the first 5 URLs | nobody | live, fixture-only |
-| web | `web_search.caps_and_snippets`: web_search returns at most 20 results, though the schema allows 100 | nobody | reference |
+| web | `web_search.caps_and_snippets`: Several web_search backends return at most 20 results, though the schema allows 100 | nobody | live, fixture-only |
 | web | `web_search.rescue_nested_error`: A failed web_search is re-served by a free keyless backend | model | live, verified |
 
 ## Development
