@@ -187,7 +187,7 @@ def test_compaction_becomes_a_card_at_the_end_of_the_turn(fp, host):
     fp.compaction(session_id="s2", old_session_id="s1", kind="summarize", reason="turn_start_threshold",
                   before_tokens=182_000, after_tokens=41_000, messages_removed=34)
     card = fp.turn_end(session_id="s2", turn_id="t1", platform="cli")
-    assert "34 messages were replaced by a summary, about 182,000 to 41,000 tokens" in card
+    assert "net message count fell by 34; estimated tokens went from 182,000 to 41,000" in card
     assert "compression.protect_last_n" in card            # the fix comes from the catalogue entry
     fp.compaction(session_id="s2", kind="prune_tool_results", reason="proactive_prune", messages_removed=0)
     assert fp.turn_end(session_id="s2", turn_id="t2", platform="cli") is None      # small ones are logged only
@@ -200,7 +200,7 @@ def test_session_rotation_in_the_middle_of_a_turn_keeps_the_turn_whole(fp, host)
     run_tool(fp, "read_file", {"path": "/x/example.com-2dce0a4c50.md"}, json.dumps({"content": "x"}), n=2,
              session="new", turn="t1")
     card = fp.turn_end(session_id="new", turn_id="t1", platform="cli")
-    assert "context compaction (post_tool)" in card and "web_extract" not in card   # the page was followed up
+    assert "context compaction (summarize, trigger post_tool)" in card and "web_extract" not in card   # the page was followed up
     rules = {e["rule_id"]: e for e in fp.ledger.session_events("new")}
     assert rules["web_extract.head_tail_truncation"]["recovered"]                   # ... after the rotation
     assert rules["compaction-stubs-old-tool-results-before-summary"]["surfaced"]
@@ -214,12 +214,11 @@ def test_failed_summary_before_compaction_is_reported_as_likely_skeleton(fp, hos
     assert "deterministic-fallback-summary" in {e["rule_id"] for e in fp.ledger.session_events("s1")}
 
 
-def test_output_cap_and_exit_reason_are_logged_not_carded(fp, host):
-    fp.api_response(session_id="s1", turn_id="t1", model="m", finish_reason="length", usage={"completion_tokens": 8192})
+def test_exit_reason_is_logged_not_carded(fp, host):
     fp.api_response(session_id="s1", turn_id="t1", model="m", finish_reason="stop", usage={"completion_tokens": 10})
     assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli") is None
     assert fp.turn_end(session_id="s1", turn_id="t1", platform="cli", turn_exit_reason="text_response(finish_reason=stop)") is None
     assert fp.turn_end(session_id="s1", turn_id="t2", platform="cli", turn_exit_reason="budget_exhausted", failed=True) is None
     rules = [e["rule_id"] for e in fp.ledger.session_events("s1")]
-    assert sorted(rules) == ["output-cap-and-length-continuation", "turn-and-subagent-caps"]
+    assert sorted(rules) == ["turn-and-subagent-caps"]
     assert host.posted == []
