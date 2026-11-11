@@ -200,6 +200,11 @@ def _share(part: int, whole: int) -> str:
     return f"{pct}%" if pct else "under 1%"
 
 
+def _n(count: int, noun: str, plural: str = "") -> str:
+    """'1 page', '2 pages', '1,009 images': the count with its noun in the right number."""
+    return f"{count:,} {noun if count == 1 else (plural or noun + 's')}"
+
+
 def _followed(records: list[dict]) -> tuple[int, int]:
     in_turn = sum(1 for r in records if r["recovered"])
     return in_turn, in_turn + sum(1 for r in records if r["later"])
@@ -210,7 +215,7 @@ def _lines(rules: dict) -> Iterator[str]:
     if r:
         pct = [100 * x["numbers"]["shown"] / x["numbers"]["total"] for x in r]
         in_turn, ever = _followed(r)
-        yield (f"• web_extract cut {len(r):,} pages to head + tail: the model saw a median "
+        yield (f"• web_extract cut {_n(len(r), 'page')} to head + tail: the model saw a median "
                f"{round(statistics.median(pct))}% of a page ({_share(sum(1 for p in pct if p < 50), len(r))} of "
                f"pages under half). A follow-up read of the rest was seen for {_share(in_turn, len(r))} within "
                f"the turn ({_share(ever, len(r))} by the end of the session).")
@@ -218,7 +223,7 @@ def _lines(rules: dict) -> Iterator[str]:
     if r:
         ratios = [x["numbers"]["ratio"] for x in r]
         in_turn, ever = _followed(r)
-        yield (f"• {len(r):,} images were downscaled before the model saw them: median "
+        yield (f"• {_n(len(r), 'image was', 'images were')} downscaled before the model saw them: median "
                f"{statistics.median(ratios):g}x fewer pixels (max {max(ratios):g}x). A region zoom on the same "
                f"image followed for {_share(in_turn, len(r))} within the turn ({_share(ever, len(r))} by session "
                "end). Rows stored without their scale note are not counted.")
@@ -229,13 +234,13 @@ def _lines(rules: dict) -> Iterator[str]:
         empty = sum(1 for x in keyless if x["numbers"].get("results") == 0)
         if keyless:
             yield (f"• web_search was answered by the keyless free tier instead of the configured backend "
-                   f"{len(keyless):,} times" + (f" ({empty} of them came back empty)" if empty else "") + ".")
+                   f"{_n(len(keyless), 'time')}" + (f" ({empty} of them came back empty)" if empty else "") + ".")
         if managed:
-            yield f"• web_search fell back from the managed primary backend to the managed fallback {managed:,} times."
+            yield f"• web_search fell back from the managed primary backend to the managed fallback {_n(managed, 'time')}."
     r = rules.get("search-files-silent-page-cap")
     if r:
         in_turn, ever = _followed(r)
-        yield (f"• search_files returned a full page with no 'more' flag {len(r):,} times; the same search was "
+        yield (f"• search_files returned a full page with no 'more' flag {_n(len(r), 'time')}; the same search was "
                f"continued for {_share(ever, len(r))}.")
     r = rules.get("tool_result.spill_trap")
     if r:
@@ -244,19 +249,19 @@ def _lines(rules: dict) -> Iterator[str]:
         lost = len(r) - len(saved)
         opened = sum(1 for x in saved if x["recovered"] or x["later"])
         if saved:
-            yield (f"• {len(saved):,} tool results were replaced by a short preview and a saved file; a read of "
+            yield (f"• {_n(len(saved), 'tool result was', 'tool results were')} replaced by a short preview and a saved file; a read of "
                    f"the file followed for {_share(opened, len(saved))}.")
         if lost:
-            yield f"• {lost:,} tool results were cut inline with nothing saved."
+            yield f"• {_n(lost, 'tool result was', 'tool results were')} cut inline with nothing saved."
     r = rules.get("web_extract.url_cap_5")
     if r:
         dropped = sum(x["numbers"]["dropped"] for x in r)
-        yield f"• web_extract was asked for more than 5 URLs {len(r):,} times: {dropped:,} URLs were never fetched."
+        yield f"• web_extract was asked for more than 5 URLs {_n(len(r), 'time')}: {_n(dropped, 'URL was', 'URLs were')} never fetched."
     r = rules.get("long-line-clamps")
     if r:
         whole = [x for x in r if x["numbers"].get("marked", 0) >= x["numbers"].get("lines", 1 << 30)]
         in_turn, ever = _followed(whole)
-        yield (f"• read_file returned lines cut at the line-length cap {len(r):,} times; in {len(whole):,} of them "
+        yield (f"• read_file returned lines cut at the line-length cap {_n(len(r), 'time')}; in {len(whole):,} of them "
                "every line returned was cut (one-line JSON, minified files)"
                + (f", and a follow-up with terminal or execute_code was seen for {_share(in_turn, len(whole))} "
                   "within the turn." if whole else "."))
@@ -266,7 +271,7 @@ def _lines(rules: dict) -> Iterator[str]:
         small = sum(1 for x in window if 2 * x["numbers"]["shown"] < x["numbers"]["total"])
         in_turn, ever = _followed(window)
         if window:
-            yield (f"• terminal output was captured as head + tail {len(window):,} times ({small:,} kept under half "
+            yield (f"• terminal output was captured as head + tail {_n(len(window), 'time')} ({small:,} kept under half "
                    f"of the output); a read of the saved log followed for {_share(in_turn, len(window))} within the turn.")
     known = {"web_extract.head_tail_truncation", "native-embed-downscale-1568", "web_search.rescue_nested_error",
              "search-files-silent-page-cap", "tool_result.spill_trap", "web_extract.url_cap_5",
@@ -274,8 +279,7 @@ def _lines(rules: dict) -> Iterator[str]:
     from . import catalog
     for rule_id in sorted(set(rules) - known):
         entry = catalog.get(rule_id) or {}
-        n = len(rules[rule_id])
-        yield f"• {entry.get('title') or rule_id}: {n:,} time{'' if n == 1 else 's'} (/limits explain {rule_id})."
+        yield f"• {entry.get('title') or rule_id}: {_n(len(rules[rule_id]), 'time')} (/limits explain {rule_id})."
 
 
 def render_report(result: dict, days: int) -> str:

@@ -109,3 +109,16 @@ def test_identical_stub_length_excludes_advice_appended_after_it():
     long = [o for o in REGISTRY.run("commit", "terminal", CommitRow("terminal", data["args"], longer, 800, "c2"))
             if o.rule_id == "identical-result-stub"]
     assert short and long and short[0].numbers["shown"] == long[0].numbers["shown"] <= len(stub)
+
+
+def test_report_sentences_agree_in_number():
+    from fine_print.report import _lines
+    one = {"numbers": {"shown": 3_704, "total": 50_000}, "recovered": False, "later": False}
+    page = {"numbers": {"shown": 50, "offset": 0}, "recovered": False, "later": False}
+    text = "\n".join(_lines({"web_extract.head_tail_truncation": [one], "search-files-silent-page-cap": [page],
+                             "tool_result.spill_trap": [{"numbers": {"shown": 1_500, "total": 9_000}, "recovered": True,
+                                                         "later": False}]}))
+    assert "cut 1 page to head + tail" in text and "flag 1 time;" in text and "1 tool result was replaced" in text
+    assert "1 pages" not in text and "1 times" not in text
+    many = "\n".join(_lines({"web_extract.head_tail_truncation": [one, one]}))
+    assert "cut 2 pages to head + tail" in many

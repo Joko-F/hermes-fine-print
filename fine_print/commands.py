@@ -60,7 +60,7 @@ class Commands:
         n = info.get("notes", 0)
         return ("Added to the model's context by Fine Print: "
                 f"{info.get('note_chars', 0):,} chars of notes in {n} tool result{'s' if n != 1 else ''} this session "
-                f"(notes {'on' if notes_on else 'off'}); a {sheet:,}-char sheet per new session "
+                f"(notes {'on' if notes_on else 'off'}); a sheet of {sheet:,} chars per new session "
                 f"(sheet {'on' if sheet_on else 'off'}). No LLM calls, no network. "
                 "/limits notes off stops the notes at once; /limits sheet off applies to new sessions.")
 
