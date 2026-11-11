@@ -34,7 +34,7 @@ tool calls (11%) would have ended with a card.
 
 ## What you get
 
-**1. A card after the turn.** One notice per turn, at most three bullets, only when all of this is
+**1. A card when the turn ends.** One notice per turn, at most three bullets, only when all of this is
 true: a limit bit, no follow-up by the model was seen within the turn, and there is something you can do.
 
 ```
@@ -45,7 +45,9 @@ details: /limits
 ```
 
 If the model reads the saved copy, zooms into the image or continues the search in the same turn, no
-card appears. The same cause is not shown twice in a session.
+card appears. The same cause is not shown twice in a session. The card is posted the moment the turn
+ends, and a plugin cannot choose where a surface draws it: the TUI and the CLI, which are still
+printing the answer at that moment, show it just above the answer or inside a long one.
 
 **2. A note to the model, only where Hermes tells nobody.** One bracketed line inside the tool result,
 placed first so it survives a spill preview:
@@ -190,7 +192,7 @@ What a user should know before installing (catalog rule 13):
   content, no full URLs or query strings, no paths, no search patterns: numbers and labels pass a
   filter before they are written. Rows of a deleted session are purged. Host names and file names are
   metadata, but they are yours: the file stays on your machine.
-- **Posts a notice into the chat** after a turn. On messaging platforms a notice is a real message that
+- **Posts a notice into the chat** when a turn ends. On messaging platforms a notice is a real message that
   a whole group sees, so cards default to local surfaces (CLI, TUI, Desktop) only.
 - No network, no telemetry, no subprocesses, no credentials, no middleware, no tools, no monkeypatching.
   It never approves, blocks or reroutes a call and never advises turning a safety feature off.
@@ -206,11 +208,11 @@ What a user should know before installing (catalog rule 13):
 | context | `lean-tail-small-verbatim-window-after-compaction`: After compaction only a small recent tail stays verbatim | model | reference |
 | context | `memory-caps-frozen-snapshot-and-blocked-entries`: Built-in memory: 2,200 + 1,375 chars, frozen per session | model | reference |
 | context | `model-name-gated-guidance`: Prompt guidance blocks depend on substrings in the model name | nobody | reference |
-| context | `session-search-recovery-cap-4k`: session_search returns at most 4,000 chars of a stored message | model | live, fixture-only |
+| context | `session-search-recovery-cap-4k`: session_search cuts stored messages to 1,200-4,000 chars per excerpt | model | live, fixture-only |
 | context | `skill-index-description-clip-and-hiding`: The skill index clips each description to 60 chars | model | reference |
 | context | `stale-system-prompt-and-pinned-tools-on-resume`: Edits to SOUL.md, AGENTS.md and skills do not reach a resumed session | nobody | reference |
 | context | `summarizer-input-capped-and-sampled`: The compaction summary is written from a truncated view | nobody | reference |
-| files | `long-line-clamps`: read_file cuts every line at 2,000 characters | model | live, verified |
+| files | `long-line-clamps`: read_file cuts lines longer than 2,000 characters | model | live, verified |
 | files | `office-extraction-silent-loss`: .xlsx and .docx files are read partially, with no note | nobody | live, fixture-only |
 | files | `read-dedup-stub-after-spill`: Re-reading a file can return an 'unchanged' stub with no content | model | reference |
 | files | `search-files-silent-page-cap`: search_files returns up to 50 matches and never says there are more | nobody | live, verified |
@@ -263,7 +265,7 @@ What a user should know before installing (catalog rule 13):
 | tools | `tool_result.spill_trap`: Large tool results are replaced by a 1,500-char preview | model | live, verified |
 | tools | `turn-and-subagent-caps`: Agent turns and subagents stop at iteration caps | both | live, fixture-only |
 | web | `native-web-search-swap`: Provider-side web search replaces Hermes's own web tools | nobody | reference |
-| web | `web-extract-stored-copy-2m-cap`: The saved 'full text' of a web page is cut at 2,000,000 chars | model | live, fixture-only |
+| web | `web-extract-stored-copy-2m-cap`: The saved 'full text' of a web page is cut at 2,000,000 chars | nobody | live, fixture-only |
 | web | `web.cache_served_silently`: Cached web results are served without a freshness label | nobody | reference |
 | web | `web.keyless_ring_rotation`: Without web keys each request goes to a different free service | nobody | reference |
 | web | `web_extract.batch_timeout`: web_extract timeout covers the whole batch, not each URL | model | live, fixture-only |

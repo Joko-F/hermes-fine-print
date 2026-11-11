@@ -24,7 +24,7 @@ CATALOG = ROOT / "fine_print" / "catalog.json"
 EXPECTED_COUNT = 75
 TOPICS = {"images", "web", "files", "tools", "context", "model", "settings"}
 KINDS = {"SAW", "MISSING", "SWAPPED", "SETTINGS", "FORGOT"}
-DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "session",
+DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "turn", "session",
            "compaction", "route", "reference"}
 DETECTS = {"live", "heuristic", "reference"}
 TOLD = {"nobody", "model", "user", "both"}

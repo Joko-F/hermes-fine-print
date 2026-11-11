@@ -12,7 +12,7 @@ CATALOG = Path(__file__).parent.parent / "fine_print" / "catalog.json"
 
 TOPICS = {"images", "web", "files", "tools", "context", "model", "settings"}
 KINDS = {"SAW", "MISSING", "SWAPPED", "SETTINGS", "FORGOT"}
-DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "session",
+DRIVERS = {"tool", "tool+commit", "commit", "wire", "response", "turn", "session",
            "compaction", "route", "reference"}
 DETECTS = {"live", "heuristic", "reference"}
 TOLD = {"nobody", "model", "user", "both"}
