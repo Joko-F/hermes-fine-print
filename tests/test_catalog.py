@@ -51,7 +51,7 @@ def test_top_level(doc):
 
 
 def test_entry_count(entries):
-    assert len(entries) == 76
+    assert len(entries) == 75
 
 
 def test_unique_ids(entries):

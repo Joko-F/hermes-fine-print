@@ -823,28 +823,6 @@
       ]
     },
     {
-      "id": "anthropic-oauth-wire-rewrites",
-      "title": "Anthropic OAuth rewrites the prompt identity and tool names",
-      "topic": "model",
-      "kind": "SWAPPED",
-      "driver": "wire",
-      "detect": "live",
-      "what": "With Anthropic OAuth, the system prompt gets a Claude Code identity line and names inside it are rewritten: 'Hermes Agent' becomes 'Claude Code' and 'Nous Research' becomes 'Anthropic'. Tools are renamed to mcp__<name>, session_search to chat_history_lookup and memory to context_notes. The renames are reversed on the way back.",
-      "threshold": "Anthropic OAuth tokens only",
-      "told": "nobody",
-      "told_detail": "",
-      "config_key": null,
-      "fix": "Hardcoded in v0.23.0. Use an Anthropic API key instead of OAuth to avoid the rewrites.",
-      "applies": "",
-      "issues": [],
-      "code_refs": [
-        "agent/anthropic_adapter.py:318-338",
-        "agent/anthropic_adapter.py:548-575",
-        "agent/anthropic_adapter.py:578-614",
-        "agent/turn_truncation.py:178-184"
-      ]
-    },
-    {
       "id": "codex-incomplete-ladder",
       "title": "Codex 'incomplete' replies are continued up to 3 times, then fallback",
       "topic": "model",
