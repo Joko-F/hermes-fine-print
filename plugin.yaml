@@ -1,0 +1,38 @@
+name: fine-print
+version: 0.1.0
+manifest_version: 2
+api_version: 1
+description: "Shows where Hermes silently shrinks, cuts, swaps or hides what the model sees: a card with before/after numbers and the fix, a note to the model only where core tells nobody, and /limits explaining 76 catalogued limits. No LLM calls, no network."
+author: Joko-F
+license: MIT
+homepage: https://github.com/Joko-F/hermes-fine-print
+tags: [observability, context, limits, tools]
+requires_hermes: ">=0.23.0"
+provides_tools: []
+provides_middleware: []
+provides_commands:
+  - limits
+provides_hooks:
+  - transform_tool_result
+  - post_llm_call
+  - on_session_end
+  - subagent_start
+  - post_compaction
+  - on_session_delete
+config_schema:
+  cards:
+    type: str
+    choices: [auto, "on", "off"]
+    default: auto
+    label: Cards
+    description: "User-facing card after a turn where a limit bit and the model did not recover. auto = local surfaces (CLI, TUI, Desktop) only."
+  notes:
+    type: bool
+    default: true
+    label: Model notes
+    description: "One bracketed line inside a tool result, only where Hermes itself tells nobody (at most 2 per turn, 200 chars each)."
+  sheet:
+    type: bool
+    default: true
+    label: Limits sheet
+    description: "A block of at most 1,000 chars in the system prompt of new sessions with the limits a model cannot see per call."

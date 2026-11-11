@@ -1,0 +1,42 @@
+{
+  "name": "bg_process_rolling_buffer_log",
+  "tool": "process",
+  "args": {
+    "action": "log",
+    "session_id": "proc_fp0000000001",
+    "offset": 0,
+    "limit": 3
+  },
+  "result": "{\"session_id\": \"proc_fp0000000001\", \"command\": \"seq 1 100000\", \"status\": \"running\", \"output\": \"m dolor sit amet consectetur\\nline 003080 lorem ipsum dolor sit amet consectetur\\nline 003081 lorem ipsum dolor sit amet consectetur\", \"total_lines\": 3922, \"showing\": \"3 lines\"}",
+  "facts": {
+    "chars_ever_ingested": 357000,
+    "buffer_cap": 200000,
+    "buffer_chars_kept": 200000,
+    "chars_dropped": 157000,
+    "first_line_ingested": "line 000001 lorem ipsum dolor sit amet consectetur",
+    "first_line_visible_in_log": "m dolor sit amet consectetur",
+    "result_top_keys": [
+      "session_id",
+      "command",
+      "status",
+      "output",
+      "total_lines",
+      "showing"
+    ],
+    "poll_top_keys": [
+      "session_id",
+      "command",
+      "status",
+      "pid",
+      "uptime_seconds",
+      "output_preview"
+    ],
+    "marker_in_result": false,
+    "note": "offset=0 returns the head of the ROLLING buffer, not the head of the process output; no marker, no dropped-char count in poll/log (total_output_chars exists on the session but is not serialised)",
+    "serialization": "the process tool handler json-dumps this dict; shown here via json.dumps(ensure_ascii=False)"
+  },
+  "expect": "hit",
+  "limit_id": "bg-process-rolling-200k",
+  "source": "tools/process_registry.py:59 (MAX_OUTPUT_CHARS), :622-642 (_append_locked), :1991-2046 (poll/read_log) [ProcessRegistry/ProcessSession driven directly; no subprocess spawned]",
+  "synthetic_by_hand": false
+}

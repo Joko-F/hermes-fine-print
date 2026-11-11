@@ -1,0 +1,37 @@
+{
+  "name": "spill_json_dead_end_read",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/hermes-fine-print/devtools/home/cache/spillover/call_spill_web_0007.txt",
+    "offset": 1,
+    "limit": 200
+  },
+  "result": "{\"content\": \"1|{\\n2|  \\\"results\\\": [\\n3|    {\\n4|      \\\"url\\\": \\\"https://example.com/huge\\\",\\n5|      \\\"title\\\": \\\"Title for https://example.com/huge\\\",\\n6|      \\\"content\\\": \\\"# Spill Body\\\\n\\\\nCommodo velit consectetur nisi duis ad adipiscing ullamco magna consectetur sint commodo pariatur non occaecat veniam voluptate voluptate et aute occaecat.\\\\nEa ex et ea ut ipsum ex qui sint sint tempor velit.\\\\n\\\\nVelit sunt qui quis nisi est mollit officia culpa dolor eiusmod sed ullamco consectetur irure nisi velit velit ex id nostrud consequat aliquip fugiat.\\\\n\\\\nQuis mollit do nostrud lorem exercitation mollit tempor nisi ad voluptate elit quis et do ullamco ipsum occaecat nulla laboris ex consequat nulla nisi lorem laborum.\\\\n\\\\nFugiat cillum officia reprehenderit dolore in deserunt nostrud minim excepteur elit laboris in qui.\\\\n\\\\nFugiat magna officia velit ut duis do id adipiscing reprehenderit non commodo exercitation id sint duis enim pariatur cillum laboris velit ullamco nostrud pariatur tempor nisi.\\\\nLabore velit proident voluptate dolor non in enim nulla fugiat irure culpa ut sunt qui aliquip ipsum et amet dolore.\\\\n\\\\nNon in cillum mollit ad dolor fugiat culpa culpa reprehenderit laborum incididunt quis ea reprehenderit ut minim laboris velit.\\\\nNostrud nisi lorem amet qui lorem duis lorem nulla nisi id consequat deserunt proident duis sit esse anim ut voluptate dolor dolor minim irure aliqua laboris nisi.\\\\nCillum mollit occaecat laboris irure non eiusmod nostrud.\\\\n\\\\nIn laborum lorem nostrud reprehenderit lorem commodo incididunt occaecat cupidatat tempor veniam elit sit do excepteur dolor elit irure.\\\\nCupidatat proident in sint dolor sed exercitation nisi aute et occaecat nisi sit exercitation proident minim nisi nisi laborum irure cillum quis culpa.\\\\nEiusmod pariatur aute consequat laborum ullamco culpa voluptate magna cupidatat magna labore laborum qui incididunt in reprehenderit ex laborum cillum veniam duis elit.\\\\nIncididunt elit minim id sint nisi et ad anim duis aute ut tempor consequat sit quis dolore deserunt cupidatat nisi.\\\\n\\\\nSunt irure reprehenderit proident enim deserunt amet et est deserunt esse deserunt ex est et p... [truncated]\\n7|      \\\"error\\\": null\\n8|    }\\n9|  ]\\n10|}\", \"total_lines\": 10, \"file_size\": 151923, \"truncated\": false, \"truncated_lines\": true, \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "facts": {
+    "saved_file": {
+      "chars": 151923,
+      "line_count": 10,
+      "line_count_wc_l": 9,
+      "max_line_len": 151774,
+      "ends_with_newline": false
+    },
+    "persisted_tool": "web_extract",
+    "result_top_keys": [
+      "content",
+      "total_lines",
+      "file_size",
+      "truncated",
+      "truncated_lines",
+      "is_binary",
+      "is_image",
+      "not_found"
+    ],
+    "content_chars": 2185,
+    "model_instruction_in_block": "Use the read_file tool with offset and limit to access specific sections of this output.",
+    "note": "following the block's own advice returns <=2000 chars of the 150,000-char 'content' line; the rest of that line is unreachable via offset"
+  },
+  "expect": "hit",
+  "limit_id": "spill-format-dead-end-v0.23",
+  "source": "tools/tool_result_storage.py:274-279 (generate_preview), :364-381 (_build_persisted_message), :395-436 (maybe_persist_tool_result), :461-493 (enforce_turn_budget); agent/tool_executor.py:1121-1131; tools/file_operations.py:489-501",
+  "synthetic_by_hand": false
+}

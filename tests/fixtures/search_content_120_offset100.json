@@ -1,0 +1,40 @@
+{
+  "name": "search_content_120_offset100",
+  "tool": "search_files",
+  "args": {
+    "pattern": "FPNEEDLE",
+    "path": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120",
+    "output_mode": "content",
+    "offset": 100
+  },
+  "result": "{\"total_count\": 120, \"matches_format\": \"path-grouped: each file path on its own line, followed by indented '<line>: <content>' rows for matches in that file\", \"matches_text\": \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d3/file_075.txt\\n  2: FPNEEDLE entry 75 aliquip lorem duis qui\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_112.txt\\n  2: FPNEEDLE entry 112 quis duis exercitation lorem\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_064.txt\\n  2: FPNEEDLE entry 64 nulla quis amet tempor\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d3/file_051.txt\\n  2: FPNEEDLE entry 51 sunt nisi officia culpa\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d3/file_093.txt\\n  2: FPNEEDLE entry 93 adipiscing nulla elit ea\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_016.txt\\n  2: FPNEEDLE entry 16 ex commodo ipsum incididunt\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_046.txt\\n  2: FPNEEDLE entry 46 fugiat officia exercitation officia\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_028.txt\\n  2: FPNEEDLE entry 28 tempor quis laborum culpa\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_076.txt\\n  2: FPNEEDLE entry 76 qui commodo ex nulla\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_106.txt\\n  2: FPNEEDLE entry 106 commodo ipsum laboris amet\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_034.txt\\n  2: FPNEEDLE entry 34 aute est in occaecat\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_094.txt\\n  2: FPNEEDLE entry 94 dolore ad non reprehenderit\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_100.txt\\n  2: FPNEEDLE entry 100 aute amet et lorem\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_004.txt\\n  2: FPNEEDLE entry 4 esse aliqua sint labore\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_010.txt\\n  2: FPNEEDLE entry 10 quis est sint et\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_052.txt\\n  2: FPNEEDLE entry 52 eiusmod cupidatat nisi consequat\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_040.txt\\n  2: FPNEEDLE entry 40 fugiat mollit occaecat dolor\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_113.txt\\n  2: FPNEEDLE entry 113 magna anim ex labore\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_082.txt\\n  2: FPNEEDLE entry 82 consectetur ullamco id occaecat\\n/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d4/file_070.txt\\n  2: FPNEEDLE entry 70 veniam sunt veniam minim\"}",
+  "facts": {
+    "real_total": 120,
+    "real_total_unit": "matching lines",
+    "limit": 50,
+    "offset": 100,
+    "rows_returned": 20,
+    "page_full": false,
+    "total_count_in_result": 120,
+    "truncated_key_present": false,
+    "top_level_keys": [
+      "total_count",
+      "matches_format",
+      "matches_text"
+    ],
+    "tree": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120",
+    "files_in_tree": 120,
+    "output_mode": "content",
+    "target": "content",
+    "page_is_silent_cap": false,
+    "more_results_exist": false,
+    "shape": "matches_text (path-grouped str) + matches_format; <5 matches use matches:[{path,line,content}]",
+    "compaction_summary_line": "[search_files] content search for 'FPNEEDLE' in /home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120 -> 120 matches",
+    "compaction_summary_produced_by": "agent/context_compressor.py:1682 (_sum_search_files) - context compaction, NOT the tool",
+    "note": "last page: 20 rows"
+  },
+  "expect": "miss",
+  "limit_id": "search-files-silent-page-cap",
+  "source": "tools/file_operations_search.py:92-496 (_parse_search_output), :1323 (_run_search_pipeline fetch_limit), tools/file_tools.py:1053-1135 (search_tool), tools/file_operations_common.py:145-171 (SearchResult.to_dict)",
+  "synthetic_by_hand": false
+}

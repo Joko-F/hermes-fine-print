@@ -1,0 +1,35 @@
+{
+  "name": "read_file_footer_retry_offset1_clamped",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/hermes-fine-print/devtools/home/cache/web/example.com-6b86b07739.md",
+    "offset": 1,
+    "limit": 200
+  },
+  "result": "{\"content\": \"1|consequat laboris magna non sint cillum proident nisi esse aliquip ipsum veniam et in minim labore minim cillum est consequat deserunt cillum excepteur adipiscing aute fugiat est esse ut sunt veniam ipsum ullamco ipsum laborum occaecat quis do ipsum esse sunt ea officia laboris minim ea excepteur nostrud proident exercitation consectetur cillum dolor aute non aute consequat duis velit qui sed anim commodo id pariatur sed voluptate qui enim elit anim do culpa do non consectetur proident nisi exercitation adipiscing aliqua laboris cupidatat deserunt officia ullamco sunt consectetur quis occaecat qui consequat non tempor do minim elit dolore laboris aute voluptate id exercitation tempor pariatur laboris magna laboris velit cupidatat deserunt labore ut do sed commodo minim cupidatat duis sunt nisi excepteur voluptate excepteur labore proident consequat non do proident in officia enim dolor proident veniam commodo dolor sit voluptate ullamco ad ex aliquip aute consectetur in cillum elit magna mollit sit quis aliquip magna eiusmod quis ex mollit tempor irure labore exercitation sed culpa tempor veniam officia deserunt eiusmod non quis amet irure exercitation eiusmod laborum eiusmod aliqua magna enim deserunt ut deserunt cillum esse duis amet tempor ut culpa excepteur ullamco aliqua laboris elit aliquip ad esse anim dolore tempor non sunt fugiat dolor incididunt velit lorem occaecat velit ipsum amet nisi enim anim nisi id nostrud in qui ut pariatur nostrud proident magna nulla velit ut ut elit sint incididunt cillum qui nisi proident quis reprehenderit culpa in ut voluptate duis mollit sit proident dolor labore ex labore cupidatat magna proident magna dolore sed reprehenderit nisi aliqua veniam mollit nostrud culpa aliquip ex occaecat do ad est cupidatat minim ipsum lorem fugiat excepteur mollit tempor veniam id ex quis ullamco lorem est sint adipiscing veniam sit sed eiusmod amet excepteur aute consequat consectetur incididunt incididunt amet aliqua mollit commodo incidid... [truncated]\", \"total_lines\": 1, \"file_size\": 60000, \"truncated\": false, \"truncated_lines\": true, \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "facts": {
+    "result_top_keys": [
+      "content",
+      "total_lines",
+      "file_size",
+      "truncated",
+      "truncated_lines",
+      "is_binary",
+      "is_image",
+      "not_found"
+    ],
+    "saved_file": {
+      "chars": 60000,
+      "line_count": 1,
+      "line_count_wc_l": 0,
+      "max_line_len": 60000,
+      "ends_with_newline": false
+    },
+    "content_chars": 2017,
+    "note": "the hint says 'Retry with offset <= 1'; doing so returns only the first 2000 chars of the 60,000-char line -> the omitted middle of a no-newline page is unreachable through read_file"
+  },
+  "expect": "hit",
+  "limit_id": "web_extract.pdf_from_url",
+  "source": "tools/file_operations.py:489-501 (_add_line_numbers clamp), :815/:1172 (truncated_lines); tools/tool_output_limits.py:15; tools/web_tools_truncate.py:114",
+  "synthetic_by_hand": false
+}

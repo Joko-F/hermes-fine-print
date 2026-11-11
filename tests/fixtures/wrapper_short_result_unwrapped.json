@@ -1,0 +1,17 @@
+{
+  "name": "wrapper_short_result_unwrapped",
+  "tool": "browser_snapshot",
+  "args": {},
+  "result": "{\"success\": true, \"n\": 1}",
+  "committed": "{\"success\": true, \"n\": 1}",
+  "facts": {
+    "result_chars": 25,
+    "min_wrap_chars": 32,
+    "wrapped": false
+  },
+  "expect": "miss",
+  "limit_id": "tool_result.untrusted_wrapper_format",
+  "source": "agent/tool_dispatch_helpers.py:446-470 (make_tool_result_message), :484-541 (elision), :572-598 (_maybe_wrap_untrusted)",
+  "synthetic_by_hand": false,
+  "format_reference": true
+}

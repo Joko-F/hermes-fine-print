@@ -1,0 +1,74 @@
+{
+  "name": "vision_recompress_only_1200x800_lightnoise",
+  "tool": "vision_analyze",
+  "args": {
+    "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_recompress_only_1200x800_lightnoise.png",
+    "question": "What does this test card show?"
+  },
+  "result": {
+    "_multimodal": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Image loaded into your context — you can see it natively now. Use your built-in vision to answer the user.\n\nQuestion: What does this test card show?"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/jpeg;base64,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"
+        }
+      }
+    ],
+    "text_summary": "Image attached natively for the main model (1577.9 KB). Answer using built-in vision.",
+    "meta": {
+      "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_recompress_only_1200x800_lightnoise.png",
+      "size_bytes": 1615748,
+      "native_vision": true
+    }
+  },
+  "facts": {
+    "original_width": 1200,
+    "original_height": 800,
+    "original_bytes": 1615748,
+    "original_format": "PNG",
+    "final_width": 1200,
+    "final_height": 800,
+    "final_format": "JPEG",
+    "final_mime_header": "data:image/jpeg;base64",
+    "data_url_len": 226019,
+    "data_url_prefix": "data:image/jpeg;base64,",
+    "data_url_truncated_to_b64_chars": 4096,
+    "embed_target_bytes": 262144,
+    "embed_max_dimension": 1568,
+    "data_url_over_target_before": null,
+    "pixel_size_changed": false,
+    "re_encoded_mime_changed": true,
+    "note_text": null,
+    "note_present": false,
+    "scale_factor_in_note": null,
+    "text_summary": "Image attached natively for the main model (1577.9 KB). Answer using built-in vision.",
+    "meta": {
+      "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_recompress_only_1200x800_lightnoise.png",
+      "size_bytes": 1615748,
+      "native_vision": true
+    },
+    "envelope_keys": [
+      "_multimodal",
+      "content",
+      "text_summary",
+      "meta"
+    ],
+    "content_part_types": [
+      "text",
+      "image_url"
+    ],
+    "note_template": "Image downscaled from {ow}x{oh} to {nw}x{nh} for vision; multiply any coordinates you report by {f:.2f} to map back to the original image.",
+    "original_bytes_over_target": true
+  },
+  "expect": "miss",
+  "limit_id": "native-embed-downscale-1568",
+  "source": "tools/vision_tools.py:422-505 (_resize_image_for_vision), :595-616 (_build_native_vision_tool_result), :726-744 (_vision_analyze_native), :365-382 (_build_scale_note); tools/vision_tools_image_prep.py:287",
+  "synthetic_by_hand": false,
+  "result_is_dict": true,
+  "result_truncated_base64": true
+}

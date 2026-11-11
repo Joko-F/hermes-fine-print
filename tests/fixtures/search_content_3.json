@@ -1,0 +1,38 @@
+{
+  "name": "search_content_3",
+  "tool": "search_files",
+  "args": {
+    "pattern": "FPNEEDLE",
+    "path": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3",
+    "output_mode": "content"
+  },
+  "result": "{\"total_count\": 3, \"matches\": [{\"path\": \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3/d2/file_002.txt\", \"line\": 2, \"content\": \"FPNEEDLE entry 2 lorem dolore elit et\"}, {\"path\": \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3/d1/file_001.txt\", \"line\": 2, \"content\": \"FPNEEDLE entry 1 et est ipsum ullamco\"}, {\"path\": \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3/d0/file_000.txt\", \"line\": 2, \"content\": \"FPNEEDLE entry 0 occaecat pariatur anim ipsum\"}]}",
+  "facts": {
+    "real_total": 3,
+    "real_total_unit": "matching lines",
+    "limit": 50,
+    "offset": 0,
+    "rows_returned": 3,
+    "page_full": false,
+    "total_count_in_result": 3,
+    "truncated_key_present": false,
+    "top_level_keys": [
+      "total_count",
+      "matches"
+    ],
+    "tree": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3",
+    "files_in_tree": 3,
+    "output_mode": "content",
+    "target": "content",
+    "page_is_silent_cap": false,
+    "more_results_exist": false,
+    "shape": "matches_text (path-grouped str) + matches_format; <5 matches use matches:[{path,line,content}]",
+    "compaction_summary_line": "[search_files] content search for 'FPNEEDLE' in /home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_3 -> 3 matches",
+    "compaction_summary_produced_by": "agent/context_compressor.py:1682 (_sum_search_files) - context compaction, NOT the tool",
+    "note": "<5 matches -> verbose matches list instead of matches_text"
+  },
+  "expect": "miss",
+  "limit_id": "search-files-silent-page-cap",
+  "source": "tools/file_operations_search.py:92-496 (_parse_search_output), :1323 (_run_search_pipeline fetch_limit), tools/file_tools.py:1053-1135 (search_tool), tools/file_operations_common.py:145-171 (SearchResult.to_dict)",
+  "synthetic_by_hand": false
+}

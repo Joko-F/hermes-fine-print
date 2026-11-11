@@ -1,0 +1,74 @@
+{
+  "name": "vision_bytes_only_1000x700_noise",
+  "tool": "vision_analyze",
+  "args": {
+    "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_bytes_only_1000x700_noise.png",
+    "question": "What does this test card show?"
+  },
+  "result": {
+    "_multimodal": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Image loaded into your context — you can see it natively now. Use your built-in vision to answer the user.\n\nQuestion: What does this test card show?\n\nNote: Image downscaled from 1000x700 to 500x350 for vision; multiply any coordinates you report by 2.00 to map back to the original image."
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/jpeg;base64,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"
+        }
+      }
+    ],
+    "text_summary": "Image attached natively for the main model (2054.4 KB). Answer using built-in vision.",
+    "meta": {
+      "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_bytes_only_1000x700_noise.png",
+      "size_bytes": 2103690,
+      "native_vision": true
+    }
+  },
+  "facts": {
+    "original_width": 1000,
+    "original_height": 700,
+    "original_bytes": 2103690,
+    "original_format": "PNG",
+    "final_width": 500,
+    "final_height": 350,
+    "final_format": "JPEG",
+    "final_mime_header": "data:image/jpeg;base64",
+    "data_url_len": 126539,
+    "data_url_prefix": "data:image/jpeg;base64,",
+    "data_url_truncated_to_b64_chars": 4096,
+    "embed_target_bytes": 262144,
+    "embed_max_dimension": 1568,
+    "data_url_over_target_before": null,
+    "pixel_size_changed": true,
+    "re_encoded_mime_changed": true,
+    "note_text": "Image downscaled from 1000x700 to 500x350 for vision; multiply any coordinates you report by 2.00 to map back to the original image.",
+    "note_present": true,
+    "scale_factor_in_note": 2.0,
+    "text_summary": "Image attached natively for the main model (2054.4 KB). Answer using built-in vision.",
+    "meta": {
+      "image_url": "/home/dev/.hermes/cache/scratch/fp-fixtures/vision/vision_bytes_only_1000x700_noise.png",
+      "size_bytes": 2103690,
+      "native_vision": true
+    },
+    "envelope_keys": [
+      "_multimodal",
+      "content",
+      "text_summary",
+      "meta"
+    ],
+    "content_part_types": [
+      "text",
+      "image_url"
+    ],
+    "note_template": "Image downscaled from {ow}x{oh} to {nw}x{nh} for vision; multiply any coordinates you report by {f:.2f} to map back to the original image.",
+    "original_bytes_over_target": true
+  },
+  "expect": "hit",
+  "limit_id": "native-embed-downscale-1568",
+  "source": "tools/vision_tools.py:422-505 (_resize_image_for_vision), :595-616 (_build_native_vision_tool_result), :726-744 (_vision_analyze_native), :365-382 (_build_scale_note); tools/vision_tools_image_prep.py:287",
+  "synthetic_by_hand": false,
+  "result_is_dict": true,
+  "result_truncated_base64": true
+}

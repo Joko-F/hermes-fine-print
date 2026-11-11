@@ -1,0 +1,1837 @@
+{
+  "version": "0.23.0",
+  "entries": [
+    {
+      "id": "compaction-stubs-old-tool-results-before-summary",
+      "title": "Compaction replaces old tool results with one-line stubs",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "When auto-compaction runs, every tool result outside the protected tail and longer than 200 chars is replaced by a one-line stub such as '[read_file] read {path} ...' before the summary is written. Neither the summarizer nor the main model sees the content of those results afterward.",
+      "threshold": "Tool results over 200 chars before the tail; tail protects the last 20 messages",
+      "told": "both",
+      "told_detail": "Model sees the stubs; the CLI shows 'Compacting context' lines with no numbers or list of what was lost.",
+      "config_key": "compression.protect_last_n",
+      "fix": "Raise compression.protect_last_n (20 messages by default) or compression.min_tail_user_messages, or run /compress with a focus topic before switching tasks.",
+      "applies": "next call",
+      "issues": [
+        "#125019",
+        "#136542"
+      ],
+      "code_refs": [
+        "agent/context_compressor_window.py:39-46",
+        "agent/context_compressor.py:5457-5484",
+        "agent/context_compressor.py:3274-3311",
+        "agent/context_compressor.py:3173-3201"
+      ]
+    },
+    {
+      "id": "deterministic-fallback-summary",
+      "title": "A failed compaction summary is replaced by a short skeleton",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "If the summary model fails on every route, Hermes first retries on the main model, then inserts a locally built skeleton: the last user ask, up to 12 actions, files and error lines, capped at 8,000 chars. With compression.abort_on_summary_failure at its default of false, the middle of the conversation is replaced by that skeleton.",
+      "threshold": "Skeleton capped at 8,000 chars; previous summary 3,000 chars",
+      "told": "both",
+      "told_detail": "User sees 'Compression summary failed ... fallback context marker'; the model sees a note about the fallback but not the size of the loss.",
+      "config_key": "compression.abort_on_summary_failure",
+      "fix": "`hermes config set compression.abort_on_summary_failure true` stops compaction instead of replacing the middle of the conversation with the skeleton.",
+      "applies": "next call",
+      "issues": [
+        "#107516",
+        "#125019",
+        "#147857"
+      ],
+      "code_refs": [
+        "agent/context_compressor.py:1124-1129",
+        "agent/context_compressor.py:3502-3566",
+        "agent/context_compressor_summary.py:71-86",
+        "agent/conversation_compression.py:3321-3343"
+      ]
+    },
+    {
+      "id": "lean-tail-small-verbatim-window-after-compaction",
+      "title": "After compaction only a small recent tail stays verbatim",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "After compaction, only a small recent tail stays verbatim (lean mode is the default). Tool results older than the newest 6 tool rounds and at least 1,500 chars become one-line stubs. The recovery tool named in the stub, session_search, is itself deferred behind tool_search.",
+      "threshold": "Tail 2.5% of the window, 10,000 to 25,000 tokens; 6 tool rounds kept",
+      "told": "model",
+      "told_detail": "The model sees the stubs and summary sections; the user sees only 'Context compaction complete'.",
+      "config_key": "compression.tail_mode",
+      "fix": "`hermes config set compression.tail_mode legacy` keeps a bigger verbatim tail, at the cost of more tokens.",
+      "applies": "next call",
+      "issues": [],
+      "code_refs": [
+        "agent/context_compressor.py:925-934",
+        "agent/context_compressor_tail.py:9-12",
+        "agent/context_compressor_tail.py:27-39",
+        "agent/context_compressor_tail.py:46-52"
+      ]
+    },
+    {
+      "id": "memory-caps-frozen-snapshot-and-blocked-entries",
+      "title": "Built-in memory: 2,200 + 1,375 chars, frozen per session",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "wire",
+      "detect": "live",
+      "what": "MEMORY.md is capped at 2,200 chars and USER.md at 1,375 chars. When full, add and replace are refused and the model must merge older facts in the same turn; after 3 failed tries it is told to stop. The prompt copy is a snapshot taken at session load, so new writes show up only next session or after a compaction rebuild.",
+      "threshold": "2,200 chars memory; 1,375 chars user profile; 3 consolidation failures per turn",
+      "told": "model",
+      "told_detail": "A usage header '[NN% - x/y chars]' and tool errors; the user is told nothing unless reading tool results.",
+      "config_key": "memory.memory_char_limit",
+      "fix": "Raise memory.memory_char_limit and memory.user_char_limit (2200 and 1375 by default), or use an external memory provider via memory.provider.",
+      "applies": "",
+      "issues": [
+        "#10877",
+        "#42405",
+        "#59576"
+      ],
+      "code_refs": [
+        "hermes_cli/config_defaults.py:1296-1311",
+        "tools/memory_tool_store.py:174-221",
+        "tools/memory_tool_store.py:223-255",
+        "tools/memory_tool_store.py:329-337"
+      ]
+    },
+    {
+      "id": "model-name-gated-guidance",
+      "title": "Prompt guidance blocks depend on substrings in the model name",
+      "topic": "context",
+      "kind": "SETTINGS",
+      "driver": "wire",
+      "detect": "live",
+      "what": "Several system-prompt blocks are added only when the model name contains certain substrings. For example the tool-use enforcement block needs gpt, codex, gemini, gemma, grok, glm, qwen, deepseek or muse in the name. A local model served under an alias such as 'local' silently gets a different prompt.",
+      "threshold": "Substring match on the model name",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": "agent.tool_use_enforcement",
+      "fix": "`hermes config set agent.tool_use_enforcement true` adds the tool-use enforcement block whatever the model is called. agent.execution_guidance works the same way.",
+      "applies": "",
+      "issues": [
+        "#41874",
+        "#53847"
+      ],
+      "code_refs": [
+        "agent/system_prompt.py:41-52",
+        "agent/system_prompt.py:580-586",
+        "agent/prompt_builder.py:344-379",
+        "agent/prompt_builder.py:659"
+      ]
+    },
+    {
+      "id": "session-search-recovery-cap-4k",
+      "title": "session_search returns at most 4,000 chars of a stored message",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "tool",
+      "detect": "live",
+      "what": "Compaction stubs tell the model to recover output with session_search, but it returns at most 4,000 chars of any single message in scroll windows (1,200 for discovery, 2,000 for whole-session reads) and has no character offset. The rest of a 48K tool output cannot be reached.",
+      "threshold": "4,000 chars per message; 1,200 discovery; 2,000 whole-session",
+      "told": "model",
+      "told_detail": "Content ends with '…' plus content_truncated and the original length; the user is not told.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to re-run the original command or re-read the file instead of relying on session_search.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/session_search_tool.py:34-40",
+        "tools/session_search_tool.py:237-251",
+        "tools/session_search_tool.py:299-308",
+        "tools/session_search_tool.py:347"
+      ]
+    },
+    {
+      "id": "skill-index-description-clip-and-hiding",
+      "title": "The skill index clips each description to 60 chars",
+      "topic": "context",
+      "kind": "MISSING",
+      "driver": "wire",
+      "detect": "live",
+      "what": "The system-prompt skill index shows each skill's description clipped at a word boundary to 60 chars, ending in '...'. Skills whose required tools or toolsets are unavailable, or whose platform gates fail, are dropped from the index without a note. Disabling web, for example, hides web-dependent skills.",
+      "threshold": "60 chars per description",
+      "told": "model",
+      "told_detail": "The model sees clipped text with '...'; the user is warned only when authoring a skill.",
+      "config_key": "skills.auto_load",
+      "fix": "Rewrite descriptions to 60 chars or less with routing keywords first, and pin must-have skills with skills.auto_load.",
+      "applies": "next session",
+      "issues": [
+        "#46024",
+        "#84195",
+        "#94372",
+        "#137276",
+        "#150523"
+      ],
+      "code_refs": [
+        "agent/skill_utils.py:843-870",
+        "agent/prompt_builder.py:1154-1185",
+        "agent/prompt_builder.py:1206-1214",
+        "agent/prompt_builder.py:1295-1340"
+      ]
+    },
+    {
+      "id": "stale-system-prompt-and-pinned-tools-on-resume",
+      "title": "Edits to SOUL.md, AGENTS.md and skills do not reach a resumed session",
+      "topic": "context",
+      "kind": "SETTINGS",
+      "driver": "session",
+      "detect": "live",
+      "what": "A continuing or resumed session replays its stored system prompt byte for byte. Edits to SOUL.md, project context files such as AGENTS.md, and skills are not seen until /new, a compaction rebuild or `hermes sessions refresh-prompts`. The tool list is pinned too, so a tool that became available later stays out.",
+      "threshold": "Until /new, compaction or an explicit refresh",
+      "told": "nobody",
+      "told_detail": "Skill add or remove reaches the model as a one-shot note; SOUL.md, context files and tool pins are silent.",
+      "config_key": null,
+      "fix": "Run /new, `hermes sessions refresh-prompts`, or /compress to rebuild the prompt and tools.",
+      "applies": "",
+      "issues": [
+        "#150622"
+      ],
+      "code_refs": [
+        "agent/prompt_refresh.py:1-13",
+        "agent/conversation_loop.py:749-768",
+        "tools/mcp_tool_agent.py:325-361",
+        "agent/conversation_compression.py:3076-3120"
+      ]
+    },
+    {
+      "id": "summarizer-input-capped-and-sampled",
+      "title": "The compaction summary is written from a truncated view",
+      "topic": "context",
+      "kind": "FORGOT",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "Each message body over 6,000 chars is cut to its first 4,000 and last 1,500 chars, and tool-call arguments are cut at 1,500. Images become '[image]'. The whole summarizer input is capped at 160,000 chars and may be sampled in slices, so details from the middle can be missing from the summary.",
+      "threshold": "6,000 chars per message; 160,000 chars total",
+      "told": "nobody",
+      "told_detail": "Elision markers appear only in the summarizer's own prompt.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Run /compress with a focus topic per task, or set compression.threshold_tokens to compact earlier.",
+      "applies": "",
+      "issues": [
+        "#107516",
+        "#122274",
+        "#126305"
+      ],
+      "code_refs": [
+        "agent/context_compressor.py:826-836",
+        "agent/context_compressor.py:3384-3394",
+        "agent/context_compressor.py:3412-3435",
+        "agent/context_compressor.py:3591-3609"
+      ]
+    },
+    {
+      "id": "long-line-clamps",
+      "title": "read_file cuts every line at 2,000 characters",
+      "topic": "files",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "read_file cuts each line at tool_output.max_line_length and has no column offset, so the rest of a minified file, one-line JSON or a long CSV row cannot be reached. search_files also cuts each match to 500 chars with no marker.",
+      "threshold": "2,000 chars per line; search matches 500 chars; 100,000-char read budget",
+      "told": "model",
+      "told_detail": "'... [truncated]' and truncated_lines: true, with no count of dropped chars.",
+      "config_key": "tool_output.max_line_length",
+      "fix": "Raise tool_output.max_line_length (default 2000), or ask the agent to slice the line with terminal (cut, jq) or execute_code.",
+      "applies": "gateway restart",
+      "issues": [
+        "#79818",
+        "#138141"
+      ],
+      "code_refs": [
+        "tools/file_operations.py:488-502",
+        "tools/file_tools.py:97-115",
+        "tools/file_tools.py:52-64",
+        "tools/file_operations_search.py:484"
+      ]
+    },
+    {
+      "id": "office-extraction-silent-loss",
+      "title": ".xlsx and .docx files are read partially, with no note",
+      "topic": "files",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "read_file extracts .xlsx and .docx with simple parsers. XLSX keeps only the first 5,000 rows and 256 columns per sheet, skips hidden sheets and shows cached values, not formulas. DOCX keeps body paragraphs; tables are flattened and images, headers, footnotes and comments are dropped. Nothing marks this.",
+      "threshold": "5,000 rows and 256 columns per sheet; 50 MB file",
+      "told": "nobody",
+      "told_detail": "The result looks like a normal extraction and total_lines describes the clipped text.",
+      "config_key": null,
+      "fix": "Ask the agent to open the file with execute_code using openpyxl or pandas, or convert it to CSV first.",
+      "applies": "",
+      "issues": [
+        "#82722",
+        "#150199"
+      ],
+      "code_refs": [
+        "tools/read_extract.py:30-38",
+        "tools/read_extract.py:474-487",
+        "tools/read_extract.py:497-524",
+        "tools/read_extract.py:526-541"
+      ]
+    },
+    {
+      "id": "read-dedup-stub-after-spill",
+      "title": "Re-reading a file can return an 'unchanged' stub with no content",
+      "topic": "files",
+      "kind": "SAW",
+      "driver": "commit",
+      "detect": "live",
+      "what": "read_file remembers path, offset, limit and file metadata. A repeat read of an unchanged file returns a stub with no content, and further repeats are BLOCKED. The record is made before a large result may be replaced by a preview, so the stub can point the model at content it never received.",
+      "threshold": "First repeat gives the stub; 4 consecutive identical reads are BLOCKED",
+      "told": "model",
+      "told_detail": "The stub says the file is unchanged and the earlier result is still current, even when that result was spilled.",
+      "config_key": null,
+      "fix": "Ask the agent to re-read with a different limit, which counts as a new request.",
+      "applies": "",
+      "issues": [
+        "#90949",
+        "#112763",
+        "#139793",
+        "#151192"
+      ],
+      "code_refs": [
+        "tools/file_tools.py:668-683",
+        "tools/file_tools.py:501-531",
+        "tools/file_tools.py:742-745",
+        "tools/file_tools_write_guards.py:554-557"
+      ]
+    },
+    {
+      "id": "search-files-silent-page-cap",
+      "title": "search_files returns up to 50 matches and never says there are more",
+      "topic": "files",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "Content search reads exactly offset plus limit lines, so it can never tell that more matches exist. The model gets at most 'limit' matches (default 50), a total_count equal to the page size, and no truncation flag or hint.",
+      "threshold": "limit default 50",
+      "told": "nobody",
+      "told_detail": "The result looks complete; the 'Results truncated' hint can never fire.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to repeat the search with a higher offset or a narrower pattern or file_glob.",
+      "applies": "",
+      "issues": [
+        "#79530",
+        "#86480"
+      ],
+      "code_refs": [
+        "tools/file_operations_search.py:1323",
+        "tools/file_operations_search.py:495",
+        "tools/file_operations_search.py:462-476",
+        "tools/file_operations_search.py:1187"
+      ]
+    },
+    {
+      "id": "search-skips-hidden-ignored",
+      "title": "Content search skips hidden and gitignored files",
+      "topic": "files",
+      "kind": "MISSING",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "search_files uses ripgrep defaults without --hidden or --no-ignore. Dot-files and dot-directories (.env, .github), gitignored paths and binaries are skipped. Hermes mentions this only when there are zero visible matches.",
+      "threshold": "Any content search with at least one visible match",
+      "told": "model",
+      "told_detail": "Only on zero results: a note naming hidden or ignored matches.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to run `rg --hidden --no-ignore PATTERN` through terminal.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/file_operations_search.py:1341-1362",
+        "tools/file_operations_search.py:880-890",
+        "tools/file_operations_search.py:1298-1305",
+        "tools/file_operations_search.py:1382-1405"
+      ]
+    },
+    {
+      "id": "secret-redaction-sentinels",
+      "title": "Secret-like values in tool output are masked",
+      "topic": "files",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "With security.redact_secrets on (the default), output from terminal, execute_code, read_file and search_files is scanned for secrets. Credential-like values appear as masks such as '***' or '«redacted:ghp_…»'. The result carries no flag or count, and false positives on hashes or tokens can look like wrong output.",
+      "threshold": "Pattern-based; any output",
+      "told": "nobody",
+      "told_detail": "Nothing beyond the mask text itself.",
+      "config_key": "security.redact_secrets",
+      "fix": "This is a safety feature and is on by design. When a value looks wrong, ask the agent whether it is a masked token before assuming the file is corrupt.",
+      "applies": "",
+      "issues": [
+        "#35519",
+        "#98753"
+      ],
+      "code_refs": [
+        "agent/redact.py:1441-1470",
+        "tools/terminal_tool_result.py:243",
+        "tools/file_tools.py:706-711",
+        "tools/code_execution_tool.py:514-521"
+      ]
+    },
+    {
+      "id": "413-triggers-compaction-not-shrink",
+      "title": "A 413 from a large image compacts history instead of shrinking it",
+      "topic": "images",
+      "kind": "FORGOT",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "When a provider answers HTTP 413 because the request is too large, for example one huge pasted image, Hermes treats it as a history problem. It summarizes the conversation, then strips images from tool results, then fails the turn. The pasted image itself is never shrunk.",
+      "threshold": "Any 413 from the provider",
+      "told": "user",
+      "told_detail": "Buffered status lines about compressing the payload; the image is never named as the cause.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Shrink or JPEG-encode the image before attaching it, or split it into region tiles.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/error_classifier.py:182-190",
+        "agent/error_classifier.py:1361",
+        "agent/turn_overflow.py:249-276",
+        "agent/vision_message_prep.py:259-296"
+      ]
+    },
+    {
+      "id": "aux-vision-substitution",
+      "title": "A helper vision model describes images; the main model sees only text",
+      "topic": "images",
+      "kind": "SWAPPED",
+      "driver": "route",
+      "detect": "live",
+      "what": "With agent.image_input_mode on auto, any explicit auxiliary.vision provider, model or base_url makes Hermes send images to that helper model. So does a model missing from the catalog or a text-only model. The main model then receives only a text description, not the pixels.",
+      "threshold": "Any auxiliary.vision value in auto mode; an unknown or text-only model",
+      "told": "both",
+      "told_detail": "CLI shows 'analyzing' and 'image analyzed' lines; the model gets a description and is not told pixels were withheld.",
+      "config_key": "agent.image_input_mode",
+      "fix": "`hermes config set agent.image_input_mode native` sends images to the main model as pixels. Use it only with a vision-capable model, and remove any explicit auxiliary.vision backend.",
+      "applies": "",
+      "issues": [
+        "#29135",
+        "#31179",
+        "#76505"
+      ],
+      "code_refs": [
+        "agent/image_routing.py:262-271",
+        "agent/image_routing.py:330-416",
+        "hermes_cli/config_defaults.py:266",
+        "hermes_cli/cli_chat_turn_mixin.py:159-198"
+      ]
+    },
+    {
+      "id": "cli-image-routing-exception-text-fallback",
+      "title": "The CLI quietly falls back to a text description when routing fails",
+      "topic": "images",
+      "kind": "SWAPPED",
+      "driver": "route",
+      "detect": "live",
+      "what": "In the classic CLI, an exception while choosing the image mode or loading config, or a native attach where every image is unreadable, makes Hermes fall back to text mode. A helper-model description replaces the pixels, and the usual 'analyzing' line makes it look routine.",
+      "threshold": "",
+      "told": "nobody",
+      "told_detail": "Debug log only; the user sees the normal analyzing line.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to call vision_analyze on the image path to look at the pixels directly.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "hermes_cli/cli_chat_turn_mixin.py:170-182",
+        "hermes_cli/cli_chat_turn_mixin.py:184-198"
+      ]
+    },
+    {
+      "id": "format-transcode-skip",
+      "title": "HEIC, AVIF and TIFF images are skipped when decoders are missing",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "route",
+      "detect": "heuristic",
+      "what": "On native attach, formats other than PNG, JPEG, GIF or WebP are converted to PNG, which is often larger. If Pillow or the HEIF or AVIF plugin is missing, the image is skipped. An SVG on Codex without a rasterizer becomes a text placeholder.",
+      "threshold": "MIME outside png, jpeg, gif, webp; missing pillow_heif, pillow_avif or SVG rasterizer",
+      "told": "both",
+      "told_detail": "CLI prints 'skipped N unreadable image path(s)' with no reason; the model sees a placeholder only for SVG on Codex.",
+      "config_key": null,
+      "fix": "Install pillow-heif or pillow-avif, or convert the image to PNG or JPEG before attaching it.",
+      "applies": "",
+      "issues": [
+        "#69078",
+        "#89981"
+      ],
+      "code_refs": [
+        "agent/image_routing.py:433-473",
+        "agent/image_routing.py:486-530",
+        "hermes_cli/cli_chat_turn_mixin.py:186-190",
+        "tui_gateway/prompt_turn.py:234-240"
+      ]
+    },
+    {
+      "id": "gateway-text-mode-150-word-image",
+      "title": "Messaging gateways replace images with a ~150-word description",
+      "topic": "images",
+      "kind": "SWAPPED",
+      "driver": "route",
+      "detect": "live",
+      "what": "On messaging gateways such as Telegram and Discord, text-mode image routing asks the helper vision model for 2-4 sentences, about 150 English words. A high-resolution screenshot is reduced to that before the main model sees anything. The CLI asks for thorough detail instead.",
+      "threshold": "About 150 English words per image (hardcoded prompt)",
+      "told": "model",
+      "told_detail": "The model sees the description plus a hint to use vision_analyze on the image path; the user sees nothing.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to call vision_analyze on the saved image path for a closer look.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "gateway/run_inbound.py:1845-1870",
+        "hermes_cli/cli_stream_mixin.py:640-660",
+        "agent/image_routing.py:394-409"
+      ]
+    },
+    {
+      "id": "history-image-retirement",
+      "title": "At compaction only the newest 3 tool images keep their pixels",
+      "topic": "images",
+      "kind": "FORGOT",
+      "driver": "wire",
+      "detect": "live",
+      "what": "Images inside tool results (vision_analyze, browser and computer_use screenshots, MCP images) are swapped for text placeholders. At compaction only the newest 3 image-bearing tool results keep their pixels, even inside the protected tail. User-uploaded images are never rewritten.",
+      "threshold": "Newest 3 image tool results kept at compaction",
+      "told": "model",
+      "told_detail": "Placeholder text such as '[screenshot removed to save context]'; the user sees only an INFO log.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Keep the original file path and ask the agent to re-attach it or run vision_analyze on it again.",
+      "applies": "",
+      "issues": [
+        "#89286",
+        "#92699",
+        "#113517"
+      ],
+      "code_refs": [
+        "agent/context_compressor.py:1145",
+        "agent/context_compressor.py:1446-1451",
+        "agent/context_compressor.py:1462-1484",
+        "agent/context_compressor.py:1512-1550"
+      ]
+    },
+    {
+      "id": "history-rebuild-drops-images",
+      "title": "Resumed sessions bring back only the newest 3 user images",
+      "topic": "images",
+      "kind": "FORGOT",
+      "driver": "wire",
+      "detect": "live",
+      "what": "The session database stores text only. When history is rebuilt (--resume, gateway restart, every API-server request), user images become '[screenshot]' lines and only the newest vision.replay_recent_images user images (default 3) are re-attached. Tool-result images never come back.",
+      "threshold": "vision.replay_recent_images = 3 (0 = off)",
+      "told": "nobody",
+      "told_detail": "The model sees '[screenshot]' or a tool summary claiming the image was attached natively.",
+      "config_key": "vision.replay_recent_images",
+      "fix": "Raise vision.replay_recent_images (default 3), or ask the agent to re-attach the file or run vision_analyze on it again.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/session_persistence.py:120-143",
+        "agent/image_replay.py:1-21",
+        "agent/image_replay.py:36-49",
+        "agent/tool_dispatch_helpers.py:328-336"
+      ]
+    },
+    {
+      "id": "image-strip-after-rejection",
+      "title": "One image rejection strips all images for that model until a reset",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "wire",
+      "detect": "live",
+      "what": "A single 4xx reply that matches an image-rejection phrase marks the provider and model as image-rejecting. From then on every request removes all image parts, and an image-only user message is dropped from the request. The mark lasts until the agent is rebuilt.",
+      "threshold": "One matching 4xx; lasts until /new, restart or a model switch",
+      "told": "user",
+      "told_detail": "One CLI line 'Server rejected image content'; hidden by display.suppress_warning_notifications; gateway users see nothing.",
+      "config_key": null,
+      "fix": "Run /new or switch model to clear the mark, then send the image again.",
+      "applies": "",
+      "issues": [
+        "#21160",
+        "#57948",
+        "#76884",
+        "#82250",
+        "#82284"
+      ],
+      "code_refs": [
+        "agent/turn_recovery.py:263-301",
+        "agent/message_sanitization.py:364-397",
+        "agent/message_sanitization.py:403-426",
+        "agent/message_sanitization.py:446-457"
+      ]
+    },
+    {
+      "id": "mcp-native-image-cap",
+      "title": "Only 4 images from one MCP result are shown to the model",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "tool",
+      "detect": "live",
+      "what": "From one MCP tool result, at most 4 images are attached natively and at most 16 are prepared. The rest, and any image that cannot fit 1568 px or the embed byte budget, stay as MEDIA:<path> text with no note that they were not shown.",
+      "threshold": "4 attached and 16 prepared per result (hardcoded)",
+      "told": "model",
+      "told_detail": "A header says images are attached and notes scale for those only; dropped images get no line.",
+      "config_key": null,
+      "fix": "Ask for fewer images per call, or ask the agent to call vision_analyze on the remaining MEDIA paths.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/mcp_tool_content.py:129-130",
+        "tools/mcp_tool_content.py:166-173",
+        "tools/mcp_tool_content.py:176-235"
+      ]
+    },
+    {
+      "id": "native-embed-downscale-1568",
+      "title": "Images loaded by tools are downscaled to 1568 px on the long edge",
+      "topic": "images",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "Any image the model loads through a tool is re-encoded before it enters history. The long edge is capped at 1568 px and the data URL at vision.embed_target_bytes. Resizing works by halving, so 3840x2160 becomes 960x540. PNG is forced to JPEG.",
+      "threshold": "Long edge over 1568 px; data URL over 262144 B by default",
+      "told": "model",
+      "told_detail": "A note with a scale factor when dimensions change; no note when only JPEG quality drops.",
+      "config_key": "vision.embed_target_bytes",
+      "fix": "`hermes config set vision.embed_target_bytes 4194304` raises the byte budget to its documented maximum. The 1568 px edge stays; for detail, ask the agent to use vision_analyze with region=[x1,y1,x2,y2].",
+      "applies": "",
+      "issues": [
+        "#45071",
+        "#92699"
+      ],
+      "code_refs": [
+        "tools/vision_tools.py:365",
+        "tools/vision_tools.py:382-400",
+        "tools/vision_tools.py:422-505",
+        "tools/vision_tools.py:595-616"
+      ]
+    },
+    {
+      "id": "openai-detail-never-set",
+      "title": "Codex images are sent without a detail setting",
+      "topic": "images",
+      "kind": "SAW",
+      "driver": "wire",
+      "detect": "live",
+      "what": "Images sent to the Codex Responses backend become input_image parts with no 'detail' field, and no config key exists to set one. The server-side default decides how much of a high-resolution image the model perceives.",
+      "threshold": "Always; the provider default applies",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. No user-side setting exists; the provider default decides.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/codex_responses_adapter.py:314-342",
+        "agent/codex_responses_adapter.py:626-645",
+        "agent/codex_responses_adapter.py:884-891",
+        "agent/image_routing.py:533-563"
+      ]
+    },
+    {
+      "id": "outbound-image-eviction",
+      "title": "Old tool images are dropped from requests in batches of 8",
+      "topic": "images",
+      "kind": "FORGOT",
+      "driver": "wire",
+      "detect": "live",
+      "what": "On every request, old tool-result images are removed from the per-request copy in batches of 8 and replaced by a placeholder. This happens above 20 images (when one is over 2000 px), above 100 images, or above 24,000,000 image bytes. At least 3 are kept.",
+      "threshold": "20 or 100 images; 24,000,000 B; batch of 8; floor of 3",
+      "told": "model",
+      "told_detail": "Placeholder such as '[screenshot removed to save context]'; the user is not told.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to load the needed image again, using region crops to keep it small.",
+      "applies": "",
+      "issues": [
+        "#28446",
+        "#117991",
+        "#117997",
+        "#133999",
+        "#143520"
+      ],
+      "code_refs": [
+        "agent/image_eviction_policy.py:42-55",
+        "agent/context_compressor.py:1445-1452",
+        "agent/turn_request_assembly.py:162-165",
+        "agent/anthropic_message_convert.py:683"
+      ]
+    },
+    {
+      "id": "provider-reject-shrink-ladder",
+      "title": "After a size rejection every large image in the request is shrunk",
+      "topic": "images",
+      "kind": "SAW",
+      "driver": "wire",
+      "detect": "live",
+      "what": "After a provider 400 classified as image too large, Hermes re-encodes every data-URL image in the request over 4 MiB of base64 or over the provider's pixel limit, including images that were not the cause. A PNG stays PNG and is halved repeatedly, so an 8000x6000 image can end near 1000x750.",
+      "threshold": "4 MiB of base64 per image (hardcoded); one shrink retry per turn",
+      "told": "user",
+      "told_detail": "One line 'Image(s) exceeded provider size limit - shrank and retrying', with no numbers.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Pre-shrink large images to a JPEG before attaching them, or split them into region tiles.",
+      "applies": "",
+      "issues": [
+        "#76039",
+        "#106337",
+        "#112473"
+      ],
+      "code_refs": [
+        "agent/turn_recovery.py:73-103",
+        "agent/turn_recovery.py:706-716",
+        "agent/conversation_compression.py:4245",
+        "agent/conversation_compression.py:4275-4344"
+      ]
+    },
+    {
+      "id": "sticky-list-tool-content-downgrade",
+      "title": "One tool-image rejection turns later screenshots into text",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "wire",
+      "detect": "live",
+      "what": "After one 400 reply that rejects list-type tool content, Hermes sends every image tool result (vision_analyze, MCP images, browser_exec, computer_use) as its text summary for the rest of the session. The summary can say 'Image attached natively' while no pixels are attached.",
+      "threshold": "",
+      "told": "user",
+      "told_detail": "One status line the first time; later downgrades are debug log only.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Start a new session to reset the mark.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/turn_recovery.py:719-731",
+        "agent/vision_message_prep.py:207-235",
+        "agent/vision_message_prep.py:260-276",
+        "agent/tool_dispatch_helpers.py:328-336"
+      ]
+    },
+    {
+      "id": "subagent-image-repeat-cap",
+      "title": "Subagents may load the same image only 3 times per session",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "tool",
+      "detect": "live",
+      "what": "Inside delegated subagents, the same image, including region crops of it, may be natively embedded at most 3 times per session. Further vision_analyze calls are refused. The main agent has no cap unless vision.max_calls_per_image is set.",
+      "threshold": "3 per image per session in subagents; 0 = unlimited",
+      "told": "model",
+      "told_detail": "vision_analyze returns a refusal that names vision.max_calls_per_image.",
+      "config_key": "vision.max_calls_per_image",
+      "fix": "`hermes config set vision.max_calls_per_image 0` removes the cap, since 0 means unlimited.",
+      "applies": "",
+      "issues": [
+        "#112095"
+      ],
+      "code_refs": [
+        "tools/vision_tools_history_budget.py:28-31",
+        "tools/vision_tools_history_budget.py:59-72",
+        "tools/vision_tools_history_budget.py:90-112"
+      ]
+    },
+    {
+      "id": "surface-attach-byte-caps",
+      "title": "Image attach size limits differ between TUI, Desktop and CLI",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "The TUI rejects images over 20 MiB and any format other than PNG, JPEG, GIF or WebP. Desktop reads files up to 16 MiB by default and uploads up to 25 MB. A remote gateway accepts 25 MB and the browser webapp 16 MiB. The classic CLI has no cap on path attach.",
+      "threshold": "TUI 20 MiB; Desktop 16 MiB read and 25 MB upload; remote 25 MB; browser 16 MiB",
+      "told": "user",
+      "told_detail": "Error text appears but names a preview or a limit, not the setting; nothing says the CLI has no cap.",
+      "config_key": null,
+      "fix": "Raise the Chat data-URL read max in Desktop Settings, attach by path in the classic CLI, or convert the image to a JPEG under the limit first.",
+      "applies": "",
+      "issues": [
+        "#63682"
+      ],
+      "code_refs": [
+        "ui-tui/src/lib/imageAttachments.ts:19-38",
+        "ui-tui/src/lib/imageAttachments.ts:64",
+        "ui-tui/src/lib/imageAttachments.ts:110",
+        "apps/shared/src/data-url-read-max.ts:15-17"
+      ]
+    },
+    {
+      "id": "telegram-photo-compression",
+      "title": "Telegram compresses photos; full quality needs a file attachment",
+      "topic": "images",
+      "kind": "SAW",
+      "driver": "route",
+      "detect": "heuristic",
+      "what": "A photo sent as a photo on Telegram arrives already compressed by Telegram, and Hermes uses the largest size Telegram provides. Full resolution is only available when the image is sent as a file. Image documents are capped at 20 MB, or 2 GB with a local Bot API server.",
+      "threshold": "Documents 20 MB; gateway.max_inbound_media_bytes 128 MiB",
+      "told": "nobody",
+      "told_detail": "Compression is silent; only an oversized document gets 'too large. Maximum: 20 MB'.",
+      "config_key": null,
+      "fix": "Send the image as a file (document) instead of a photo. Run a local Bot API server for files over 20 MB.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "plugins/platforms/telegram/adapter.py:710",
+        "plugins/platforms/telegram/adapter.py:6750-6754",
+        "plugins/platforms/telegram/adapter.py:6850",
+        "gateway/platforms/base.py:490-515"
+      ]
+    },
+    {
+      "id": "video-aux-only",
+      "title": "Video is always described by the helper model and capped at 50 MB",
+      "topic": "images",
+      "kind": "SWAPPED",
+      "driver": "route",
+      "detect": "live",
+      "what": "video_analyze has no native path. The video always goes to the auxiliary vision model and the main model gets only text. Videos over 50 MB are rejected, a warning is logged over 20 MB, and the Codex Responses backend rejects video parts.",
+      "threshold": "50 MB hard cap; 20 MB log-only warning",
+      "told": "model",
+      "told_detail": "On failure the model gets 'Video too large for API' or a Codex unsupported-video error; the 20 MB warning is log only.",
+      "config_key": null,
+      "fix": "Choose a video-capable auxiliary.vision model, and keep videos under 50 MB by trimming or compressing them.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/vision_tools.py:1052-1053",
+        "tools/vision_tools.py:1117-1141",
+        "agent/codex_responses_adapter.py:346-355"
+      ]
+    },
+    {
+      "id": "wsl-clipboard-paste-timeout",
+      "title": "Image paste from the clipboard on WSL times out after 8 seconds",
+      "topic": "images",
+      "kind": "MISSING",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "Classic CLI paste on WSL2 runs a PowerShell clipboard read. The probe times out at 8 s and each extraction at 15 s, with up to 3 strategies tried in turn. Very large clipboard bitmaps can exceed that, and the paste fails. Wayland and X11 use a 5 s timeout.",
+      "threshold": "WSL 8 s probe and 15 s per extraction; wl-paste and xclip 5 s; TUI 15 s",
+      "told": "user",
+      "told_detail": "/paste prints 'Clipboard has an image but extraction failed' with no reason; Alt+V and Ctrl+V print nothing.",
+      "config_key": null,
+      "fix": "Save the image to a file and drag it in, or type the path at the start of the CLI input for a full-size attach.",
+      "applies": "",
+      "issues": [
+        "#8120"
+      ],
+      "code_refs": [
+        "hermes_cli/clipboard.py:42-46",
+        "hermes_cli/clipboard.py:199-275",
+        "hermes_cli/clipboard.py:310-315",
+        "hermes_cli/cli_terminal_mixin.py:580-591"
+      ]
+    },
+    {
+      "id": "anthropic-oauth-wire-rewrites",
+      "title": "Anthropic OAuth rewrites the prompt identity and tool names",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "wire",
+      "detect": "live",
+      "what": "With Anthropic OAuth, the system prompt gets a Claude Code identity line and names inside it are rewritten: 'Hermes Agent' becomes 'Claude Code' and 'Nous Research' becomes 'Anthropic'. Tools are renamed to mcp__<name>, session_search to chat_history_lookup and memory to context_notes. The renames are reversed on the way back.",
+      "threshold": "Anthropic OAuth tokens only",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Use an Anthropic API key instead of OAuth to avoid the rewrites.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "agent/anthropic_adapter.py:318-338",
+        "agent/anthropic_adapter.py:548-575",
+        "agent/anthropic_adapter.py:578-614",
+        "agent/turn_truncation.py:178-184"
+      ]
+    },
+    {
+      "id": "codex-incomplete-ladder",
+      "title": "Codex 'incomplete' replies are continued up to 3 times, then fallback",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "response",
+      "detect": "live",
+      "what": "When Codex returns status incomplete, Hermes allows up to 3 continuations per turn and injects a message telling the model to stop thinking and answer. A reasoning-only incomplete makes the next attempt run with reasoning off and a doubled output cap. Three reasoning-only attempts in a row switch to the fallback provider.",
+      "threshold": "3 continuations; 3 reasoning-only attempts trigger fallback",
+      "told": "both",
+      "told_detail": "Status line shows 'asking it to continue (n/3)' and the switch to fallback; the model receives the nudge.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Lower the reasoning effort and set up the fallback chain deliberately; the counts cannot be tuned.",
+      "applies": "",
+      "issues": [
+        "#64434",
+        "#67321",
+        "#90393"
+      ],
+      "code_refs": [
+        "agent/turn_truncation.py:561-701",
+        "agent/conversation_loop.py:1024-1028",
+        "agent/transports/codex.py:867-875"
+      ]
+    },
+    {
+      "id": "empty-response-retries",
+      "title": "An empty model reply triggers hidden paid retries",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "response",
+      "detect": "live",
+      "what": "An empty or thinking-only reply starts a recovery ladder: reuse earlier content, one nudge, thinking prefill twice, then up to 3 paid retries (1 if one attempt is estimated at $0.25 or more) with 5-60 s backoff, then the fallback provider. Every retry re-bills the whole input.",
+      "threshold": "3 retries; 1 at $0.25 or more per attempt; backoff 5-60 s",
+      "told": "user",
+      "told_detail": "Shown only when the ladder fails: 'Empty response from model - retrying' with a cost estimate; nothing on success.",
+      "config_key": "agent.empty_response_guard.cost_threshold_usd",
+      "fix": "Lower the reasoning effort or switch model. agent.empty_response_guard.cost_threshold_usd sets the per-attempt cost above which only 1 retry is made.",
+      "applies": "",
+      "issues": [
+        "#103483"
+      ],
+      "code_refs": [
+        "agent/turn_empty_response.py:47-95",
+        "agent/turn_empty_response.py:233-300",
+        "agent/empty_response_guard.py:54-57",
+        "agent/empty_response_guard.py:229-236"
+      ]
+    },
+    {
+      "id": "fallback-switch-sticky",
+      "title": "After a provider error Hermes stays on the fallback model",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "response",
+      "detect": "live",
+      "what": "On rate-limit, billing, auth, overload, content-filter or incomplete errors, Hermes swaps the client, model and provider in place to the next fallback_providers entry. It rewrites the model identity in the cached system prompt and stays on the fallback while the primary is in cooldown. Helper tasks on auto follow the fallback chain too.",
+      "threshold": "Depends on error class; cooldown follows the rate-limit reset time",
+      "told": "user",
+      "told_detail": "One warning 'Model fallback: A unavailable; using B', plus a retry estimate; session labels may still show the primary.",
+      "config_key": "fallback_providers",
+      "fix": "Run /model to switch back to the primary model explicitly, or adjust fallback_providers.",
+      "applies": "",
+      "issues": [
+        "#142473",
+        "#151304"
+      ],
+      "code_refs": [
+        "agent/chat_completion_helpers.py:2042-2108",
+        "agent/status_output.py:243-256",
+        "agent/turn_truncation.py:258-296",
+        "agent/auxiliary_client.py:4568-4590"
+      ]
+    },
+    {
+      "id": "local-server-window-mismatch-silent-truncation",
+      "title": "A local server may silently truncate prompts to its own window",
+      "topic": "model",
+      "kind": "SAW",
+      "driver": "response",
+      "detect": "live",
+      "what": "For Ollama, Hermes reads the model's window and sends it as num_ctx on the OpenAI-compatible /v1 route. If the server does not honour it, it runs at its own default and silently truncates the prompt, system prompt and tool schemas first, while Hermes trusts the larger window and compaction never fires. With no working probe, Hermes assumes 256,000 tokens.",
+      "threshold": "Fallback 256,000 tokens; windows below 64,000 are refused",
+      "told": "nobody",
+      "told_detail": "Nothing at request time; only an INFO or WARNING log line at startup.",
+      "config_key": null,
+      "fix": "Set model.context_length and model.ollama_num_ctx to the window the server really serves, and set OLLAMA_CONTEXT_LENGTH or a Modelfile num_ctx. Keep it at 64K or more.",
+      "applies": "",
+      "issues": [
+        "#43900"
+      ],
+      "code_refs": [
+        "agent/agent_init_ollama.py:9-48",
+        "agent/agent_init_ollama.py:51-71",
+        "plugins/model-providers/custom/__init__.py:56-62",
+        "agent/model_metadata.py:1431-1444"
+      ]
+    },
+    {
+      "id": "output-cap-and-length-continuation",
+      "title": "model.max_tokens is ignored; truncated replies are stitched together",
+      "topic": "model",
+      "kind": "SETTINGS",
+      "driver": "response",
+      "detect": "live",
+      "what": "The output cap cannot be configured in v0.23: model.max_tokens, HERMES_MAX_TOKENS and model_overrides max_output_tokens are no longer read, with no warning. When a reply ends with finish_reason=length, Hermes keeps the partial text and asks the model to continue, up to 4 times, and joins the pieces without a marker.",
+      "threshold": "4 text continuations; 4 tool-call retries",
+      "told": "both",
+      "told_detail": "Model gets synthetic continue messages; the CLI shows a 'Response truncated' banner; the final answer is stitched silently.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. For local endpoints raise the server's own default (llama.cpp -n, Ollama num_predict), or ask the model to answer in chunks.",
+      "applies": "",
+      "issues": [
+        "#7237",
+        "#58423",
+        "#72770",
+        "#79715"
+      ],
+      "code_refs": [
+        "agent/turn_truncation.py:140",
+        "agent/turn_truncation.py:310-372",
+        "agent/turn_truncation.py:388-405",
+        "agent/turn_truncation.py:408-450"
+      ]
+    },
+    {
+      "id": "reasoning-effort-clamp-undisableable",
+      "title": "Reasoning effort is silently lowered to what the route supports",
+      "topic": "model",
+      "kind": "SETTINGS",
+      "driver": "wire",
+      "detect": "live",
+      "what": "On the Responses/Codex path the effort defaults to medium when unset. A configured effort outside the route's levels is clamped to the nearest weaker one without notice: on gpt-6.1-sol, ultra becomes max and minimal becomes low. That model cannot disable reasoning, so '/reasoning none' cannot be sent.",
+      "threshold": "gpt-6.1-sol levels: low, medium, high, xhigh, max; default medium",
+      "told": "nobody",
+      "told_detail": "One log warning per process for 'none'; clamps are silent.",
+      "config_key": null,
+      "fix": "Choose a level the route supports. To disable reasoning, use a model whose levels include none, such as gpt-6-sol or gpt-5.6.",
+      "applies": "",
+      "issues": [
+        "#75227",
+        "#87279",
+        "#89503",
+        "#151304"
+      ],
+      "code_refs": [
+        "agent/transports/codex.py:293-345",
+        "agent/reasoning_effort.py:25-42",
+        "agent/reasoning_effort.py:104-113",
+        "agent/reasoning_effort.py:127-157"
+      ]
+    },
+    {
+      "id": "text-tool-call-markup-stripped",
+      "title": "Tool calls written as text are removed from the reply",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "response",
+      "detect": "live",
+      "what": "Hermes deletes tool-call markup such as <tool_call>, <function_call> and <tool_result> blocks from the visible reply, including an unclosed <tool_call> through to the end. When a local server has no tool-call parser, the call the model meant to make is neither run nor shown, and an empty reply starts the empty-response retries.",
+      "threshold": "Any match of the hardcoded patterns",
+      "told": "nobody",
+      "told_detail": "The user just sees a shorter or empty reply.",
+      "config_key": null,
+      "fix": "Enable the server's tool-call parser (llama.cpp --jinja, vLLM --enable-auto-tool-choice with a tool-call parser, or an Ollama model with a tools template), or switch model.",
+      "applies": "",
+      "issues": [
+        "#53847",
+        "#84158",
+        "#104412",
+        "#123398",
+        "#143036"
+      ],
+      "code_refs": [
+        "agent/agent_runtime_helpers.py:42-79",
+        "agent/agent_runtime_helpers.py:835-855",
+        "agent/turn_response_intake.py:165-192"
+      ]
+    },
+    {
+      "id": "transport-retries-hidden",
+      "title": "API calls are retried several times before any fallback",
+      "topic": "model",
+      "kind": "SWAPPED",
+      "driver": "wire",
+      "detect": "live",
+      "what": "A failing API call is retried by Hermes (agent.api_max_retries, default 3) on top of the SDK's own transient retries. Then the fallback chain runs, then up to 5 auto-recovery cycles of 15, 30, 60, 60 and 60 s. Retry chatter is dropped if the turn recovers.",
+      "threshold": "3 Hermes retries; 2 SDK retries; 5 recovery cycles",
+      "told": "user",
+      "told_detail": "Shown only on terminal failure or during the auto-recovery countdown; nothing on success.",
+      "config_key": "agent.api_max_retries",
+      "fix": "Lower agent.api_max_retries for faster failover, and set up fallback_providers.",
+      "applies": "",
+      "issues": [
+        "#103864"
+      ],
+      "code_refs": [
+        "hermes_cli/config_defaults.py:118-127",
+        "agent/status_output.py:217-276"
+      ]
+    },
+    {
+      "id": "codex-oauth-context-cap",
+      "title": "Codex OAuth context window comes from a catalog, below the real limit",
+      "topic": "settings",
+      "kind": "SETTINGS",
+      "driver": "compaction",
+      "detect": "live",
+      "what": "On the openai-codex provider the context window comes from the Codex catalog (live probe cached 1 h) or a static fallback of 272,000 tokens. Hermes's own table lists 1,050,000 for gpt-6.1-sol, and Codex was verified to accept about 900K input. The larger window is opt-in through the gpt-6.1-sol-900k alias.",
+      "threshold": "272,000 static fallback; 900,000 only with the -900k alias",
+      "told": "nobody",
+      "told_detail": "Only the status bar and /usage show the window; nothing says a larger one exists.",
+      "config_key": null,
+      "fix": "Switch to the gpt-6.1-sol-900k variant, which costs more subscription usage per turn.",
+      "applies": "",
+      "issues": [
+        "#126483",
+        "#138613",
+        "#146756",
+        "#147331"
+      ],
+      "code_refs": [
+        "agent/model_metadata.py:306",
+        "agent/model_metadata.py:1657-1663",
+        "agent/model_metadata.py:1665-1685",
+        "agent/model_metadata.py:1700-1729"
+      ]
+    },
+    {
+      "id": "compaction-trigger-floor-and-codex-autoraise",
+      "title": "compression.threshold below 0.75 is silently raised",
+      "topic": "settings",
+      "kind": "SETTINGS",
+      "driver": "session",
+      "detect": "live",
+      "what": "For context windows under 512K the compression.threshold you set is raised to at least 0.75, never announced. On the Codex OAuth route several models are raised to 0.85 with a one-time notice. The trigger also has a 64K floor.",
+      "threshold": "Windows under 512,000 get a floor of 0.75; Codex autoraise 0.85",
+      "told": "user",
+      "told_detail": "Autoraise shows a one-time notice; the 0.75 floor is never announced.",
+      "config_key": "compression.threshold_tokens",
+      "fix": "Set compression.threshold_tokens (an absolute token count, lower-only) to compact earlier than the floor. Setting compression.codex_gpt55_autoraise to false opts out of the 0.85 autoraise.",
+      "applies": "next call",
+      "issues": [
+        "#66177",
+        "#87943",
+        "#108237",
+        "#136350"
+      ],
+      "code_refs": [
+        "agent/context_compressor.py:1149-1152",
+        "agent/context_compressor.py:2648-2660",
+        "agent/context_compressor.py:2752-2795",
+        "agent/auxiliary_client.py:605-633"
+      ]
+    },
+    {
+      "id": "context-length-pin-ignored",
+      "title": "model.context_length is dropped after /model or -m",
+      "topic": "settings",
+      "kind": "SETTINGS",
+      "driver": "session",
+      "detect": "live",
+      "what": "model.context_length is applied only when the running model, base URL and provider match the configured default. After hermes -m, /model or any route mismatch, the pin is dropped and the window is auto-detected instead.",
+      "threshold": "Any mismatch in model, base URL or provider",
+      "told": "nobody",
+      "told_detail": "Debug log only.",
+      "config_key": null,
+      "fix": "Make the model you actually run the configured default, or set model.context_length again after switching.",
+      "applies": "",
+      "issues": [
+        "#116467"
+      ],
+      "code_refs": [
+        "agent/agent_init.py:1625-1648"
+      ]
+    },
+    {
+      "id": "tool-output-limits-process-cached",
+      "title": "Tool output limits are cached for the whole process",
+      "topic": "settings",
+      "kind": "SETTINGS",
+      "driver": "session",
+      "detect": "heuristic",
+      "what": "tool_output.max_bytes, max_lines and max_line_length are cached per profile for the whole process. In v0.23.0 turns run in the gateway owner, so changing one does nothing until the gateway restarts. The setting looks saved but the old limit keeps applying.",
+      "threshold": "",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": "tool_output.max_line_length",
+      "fix": "Restart the gateway with `hermes gateway restart` after changing a tool_output key.",
+      "applies": "gateway restart",
+      "issues": [],
+      "code_refs": [
+        "tools/tool_output_limits.py:16-18",
+        "tools/tool_output_limits.py:34-55",
+        "tools/file_operations.py:488-502"
+      ]
+    },
+    {
+      "id": "bg-process-rolling-200k",
+      "title": "Background process logs keep only the last 200,000 chars",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "terminal(background=true) keeps only the last 200,000 chars of a process's output in memory and drops older output without counting it. The process log action is described as full output, and completion notices carry only the last 2,000 chars. The first error of a long build can vanish.",
+      "threshold": "200,000 chars rolling tail; completion notice 2,000 chars",
+      "told": "model",
+      "told_detail": "Notices say the log has the full output, but it counts only the kept buffer; the user is not told.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to run verbose jobs as `cmd > build.log 2>&1` and read the file with search_files or read_file.",
+      "applies": "",
+      "issues": [
+        "#121354",
+        "#137771"
+      ],
+      "code_refs": [
+        "tools/process_registry.py:59",
+        "tools/process_registry.py:62",
+        "tools/process_registry.py:531-539",
+        "tools/process_registry.py:636-640"
+      ]
+    },
+    {
+      "id": "browser-exec-stderr-head-only",
+      "title": "browser_exec keeps only the first 4,000 chars of stderr",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "browser_exec stderr is redacted and then cut to its first 4,000 chars with a '(stderr truncated)' marker. A Python traceback ends with the exception line, so on long tracebacks the actual error is what gets dropped.",
+      "threshold": "4,000 chars",
+      "told": "model",
+      "told_detail": "Only the marker; no total length and no saved copy.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to catch the exception and print only its last lines.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/browser_use_cli.py:97",
+        "tools/browser_use_cli.py:884-887"
+      ]
+    },
+    {
+      "id": "browser.idle_session_reap",
+      "title": "Idle browser sessions are closed after 120 seconds",
+      "topic": "tools",
+      "kind": "FORGOT",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "A background janitor closes browser sessions that have been idle longer than the timeout, covering cloud-provider sessions and the local sidecar. The next browser_exec silently gets a fresh browser, so tabs, logins and form progress are gone, although the tool text says state persists.",
+      "threshold": "120 s idle by default (30 s floor)",
+      "told": "nobody",
+      "told_detail": "INFO log lines only.",
+      "config_key": "browser.inactivity_timeout",
+      "fix": "Raise browser.inactivity_timeout (default 120 s), and have the agent re-check page state after a long pause.",
+      "applies": "",
+      "issues": [
+        "#110064"
+      ],
+      "code_refs": [
+        "tools/browser_session.py:30-38",
+        "tools/browser_session.py:310-323",
+        "tools/browser_session.py:335-345",
+        "tools/browser_session_lifecycle.py:296-330"
+      ]
+    },
+    {
+      "id": "execute-code-fd-output-head-only",
+      "title": "execute_code drops OS-level subprocess output past a cap, with no note",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "Output written at the OS level inside execute_code (os.system, subprocess without capture, child processes, C extensions) bypasses Python's redirect. Such stdout is kept head-only up to 50,000 bytes and stderr up to 10,000 bytes per cell. The rest is discarded with no counter or marker.",
+      "threshold": "stdout 50,000 bytes and stderr 10,000 bytes, head only",
+      "told": "nobody",
+      "told_detail": "Only Python-level stdout over 50 KB is reported.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to capture child output in Python with subprocess.run(..., capture_output=True, text=True) and print the tail.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/code_kernel.py:259-263",
+        "tools/code_kernel.py:462-468",
+        "tools/code_kernel.py:517-521",
+        "tools/code_kernel.py:43"
+      ]
+    },
+    {
+      "id": "execute-code-timeout-call-cap",
+      "title": "An execute_code timeout kills the kernel and loses all variables",
+      "topic": "tools",
+      "kind": "FORGOT",
+      "driver": "tool",
+      "detect": "live",
+      "what": "An execute_code cell that exceeds the timeout kills the session kernel and loses all variables. One call may make at most 50 tool calls; extra calls return an error the script may swallow. The tool description hardcodes both limits even when config changes them.",
+      "threshold": "300 s timeout; 50 tool calls; kernel idle timeout 1800 s",
+      "told": "model",
+      "told_detail": "Model gets 'Cell timed out after 300s; the session kernel was killed'; the user is told nothing.",
+      "config_key": null,
+      "fix": "Raise the code_execution.timeout or code_execution.max_tool_calls settings, or split long work into cells that save results to files.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/code_execution_tool.py:48-49",
+        "tools/code_execution_tool.py:922",
+        "tools/code_execution_rpc.py:25",
+        "tools/code_execution_rpc.py:97-102"
+      ]
+    },
+    {
+      "id": "hook-context-spill-and-hook-payload-cap",
+      "title": "Plugin hook context over 10,000 chars is spilled to a preview",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "Context a plugin returns from a pre_llm_call hook is spilled to disk when over the cap, and the model gets only a head and tail preview plus a path. The request payload passed to API hooks is also sanitized and capped.",
+      "threshold": "hooks.output_spill.max_chars 10,000; hook payload 50,000 chars",
+      "told": "model",
+      "told_detail": "Preview with head and tail markers and a path; the plugin author is not told.",
+      "config_key": null,
+      "fix": "Keep model-facing notes from plugins under 10,000 chars, ideally under 1,000.",
+      "applies": "",
+      "issues": [
+        "#21069"
+      ],
+      "code_refs": [
+        "agent/turn_context.py:849-909",
+        "tools/hook_output_spill.py:1-8",
+        "tools/hook_output_spill.py:24-48",
+        "tools/hook_output_spill.py:64-115"
+      ]
+    },
+    {
+      "id": "identical-result-stub",
+      "title": "Repeated identical tool results are replaced by a reference note",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "commit",
+      "detect": "live",
+      "what": "From the second consecutive byte-identical result of at least 512 chars from the same tool and args in a turn, the copy in context becomes a stub pointing at the earlier result. read_file and search_files also return BLOCKED errors after 4 identical calls.",
+      "threshold": "512 chars minimum; BLOCKED at 4 consecutive identical calls",
+      "told": "model",
+      "told_detail": "A note says the result is byte-identical to an earlier one; the user is not told.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Informational: the earlier result is unchanged, so the model stops re-checking it.",
+      "applies": "",
+      "issues": [
+        "#10521"
+      ],
+      "code_refs": [
+        "agent/tool_guardrails.py:39",
+        "agent/tool_guardrails.py:51",
+        "agent/tool_guardrails.py:497-500",
+        "agent/tool_guardrails.py:542-556"
+      ]
+    },
+    {
+      "id": "mcp-result-caps",
+      "title": "MCP results over 50,000 chars are spilled to a preview",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool+commit",
+      "detect": "live",
+      "what": "mcp_* results longer than 50,000 chars, or a lower context-scaled threshold, are spilled to a 1,500-char preview with a saved-file path. Text over 2,000,000 chars is cut at head and tail.",
+      "threshold": "tool_budget.mcp_result_size_chars 50,000; hard cap 2,000,000 chars",
+      "told": "model",
+      "told_detail": "The model sees the spill stub; the user is not told.",
+      "config_key": null,
+      "fix": "Raise the tool_budget.mcp_result_size_chars setting (default 50000; the context-scaled threshold still applies).",
+      "applies": "",
+      "issues": [
+        "#50788"
+      ],
+      "code_refs": [
+        "tools/budget_config.py:20",
+        "tools/budget_config.py:69-70",
+        "tools/mcp_tool_content.py:25",
+        "tools/mcp_tool_content.py:129-130"
+      ]
+    },
+    {
+      "id": "spill-format-dead-end-v0.23",
+      "title": "A spilled JSON tool result cannot be paged as Hermes advises",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "commit",
+      "detect": "live",
+      "what": "In v0.23.0 a spilled JSON tool result (terminal, execute_code, read_file, skill_view) is saved as one physical line. The inline preview is only the head of that JSON, so exit_code, errors and the output tail are not visible. The advice to page with read_file offset and limit fails, because line 1 is cut at 2,000 chars.",
+      "threshold": "Preview 1,500 chars; read_file line limit 2,000",
+      "told": "model",
+      "told_detail": "The recovery hint tells the model to page with read_file, which does not work for this format.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask the agent to open the saved file with execute_code or terminal instead of read_file.",
+      "applies": "",
+      "issues": [
+        "#79818",
+        "#126444",
+        "#138141"
+      ],
+      "code_refs": [
+        "tools/terminal_tool_result.py:259",
+        "tools/tool_result_storage.py:282-320",
+        "tools/tool_result_storage.py:274-279",
+        "tools/tool_result_storage.py:364-381"
+      ]
+    },
+    {
+      "id": "subagent-summary-budget",
+      "title": "Subagents return only their final text, cut to a size budget",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "delegate_task returns only each child's final text, never its tool outputs. That text is cut to the smaller of delegation.max_summary_chars and a budget based on the parent's remaining context. Over-cap summaries keep 75% head and 25% tail, with the full text saved to a file. With a nearly full parent or many children, a summary can drop to 2,000 chars.",
+      "threshold": "24,000 chars ceiling; 2,000 floor; 10 children per batch",
+      "told": "model",
+      "told_detail": "Footer '[SUMMARY TRUNCATED]' with chars shown and the saved path; the user is told nothing.",
+      "config_key": "delegation.max_summary_chars",
+      "fix": "Raise delegation.max_summary_chars (default 24000; 0 lifts the ceiling but the dynamic budget still applies), or use fewer children per batch.",
+      "applies": "",
+      "issues": [
+        "#81984"
+      ],
+      "code_refs": [
+        "tools/delegate_tool_results.py:165-171",
+        "tools/delegate_tool_results.py:211-240",
+        "tools/delegate_tool_results.py:254-276",
+        "tools/delegate_tool_results.py:281-308"
+      ]
+    },
+    {
+      "id": "terminal-capture-window-and-timeout",
+      "title": "Foreground terminal output keeps 40% head and 60% tail",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "Foreground terminal output is captured in a window of tool_output.max_bytes chars, 40% from the head and 60% from the tail, and the middle is replaced by a notice. The full stream is also saved to a log file and its path is returned. Commands are killed after 180 s by default; the foreground maximum is 600 s.",
+      "threshold": "50,000 chars window; timeout 180 s; foreground max 600 s",
+      "told": "model",
+      "told_detail": "'OUTPUT TRUNCATED - N chars omitted' plus the saved log path.",
+      "config_key": "tool_output.max_bytes",
+      "fix": "Raise tool_output.max_bytes (default 50000), or ask the agent to read the saved full-output file with search_files or read_file. terminal.timeout sets the time limit.",
+      "applies": "gateway restart",
+      "issues": [
+        "#86401"
+      ],
+      "code_refs": [
+        "tools/tool_output_limits.py:13",
+        "tools/environments/base_output.py:26",
+        "tools/environments/base_output.py:34-35",
+        "tools/environments/base_output.py:141-166"
+      ]
+    },
+    {
+      "id": "tool-search-defers-mcp-and-plugin-tools",
+      "title": "MCP and plugin tools are hidden behind tool_search",
+      "topic": "tools",
+      "kind": "MISSING",
+      "driver": "session",
+      "detect": "live",
+      "what": "Any MCP tool, any non-core plugin tool and a curated list of built-ins are removed from the tool list the model sees. Three bridge tools (tool_search, tool_describe, tool_call) replace them, and the model sees only a manifest in the tool_search description. The manifest shrinks to names only, then to per-server counts, as the listing budget runs out.",
+      "threshold": "Listing budget min(listing_max_tokens 4000, 5% of context)",
+      "told": "model",
+      "told_detail": "The bridge description lists the tools; a user status line appears only when quiet_mode is off.",
+      "config_key": "tools.tool_search.defer",
+      "fix": "Set tools.tool_search.defer to a short explicit list (an empty list keeps every tool eager) so important tools stay visible. Raising tools.tool_search.listing_max_tokens lets descriptions fit.",
+      "applies": "",
+      "issues": [
+        "#107515"
+      ],
+      "code_refs": [
+        "tools/tool_search.py:147-163",
+        "tools/tool_search.py:204-221",
+        "tools/tool_search.py:238-269",
+        "tools/tool_search.py:344-379"
+      ]
+    },
+    {
+      "id": "tool-silently-dropped-when-check_fn-fails",
+      "title": "A tool whose availability check fails silently disappears",
+      "topic": "tools",
+      "kind": "MISSING",
+      "driver": "session",
+      "detect": "live",
+      "what": "Each tool has an availability probe, run when the tool list is built, for example for a missing API key, an uninstalled browser or an unconfigured backend. If it fails, the tool is removed from the schema while its toolset still shows as enabled. The model says it has no such tool and nothing points at the cause.",
+      "threshold": "",
+      "told": "nobody",
+      "told_detail": "Log only; neither the user nor the model is told.",
+      "config_key": null,
+      "fix": "Check the missing API key or dependency for the tool, and run `hermes doctor` or `hermes tools` to see what is available.",
+      "applies": "",
+      "issues": [
+        "#112649"
+      ],
+      "code_refs": [
+        "tools/registry.py:215-232",
+        "tools/registry.py:426-444",
+        "tools/registry.py:475-485",
+        "tools/tool_search_catalog.py:238-262"
+      ]
+    },
+    {
+      "id": "tool_result.spill_trap",
+      "title": "Large tool results are replaced by a 1,500-char preview",
+      "topic": "tools",
+      "kind": "SAW",
+      "driver": "commit",
+      "detect": "live",
+      "what": "A tool result over the per-result threshold is replaced, before it enters context, by a stub with a 1,500-char preview and a saved-file path. Raising web.extract_char_limit past about 95K makes this worse. On a 64K-context local model, 3 long pages in one call already spill.",
+      "threshold": "Per result min(100,000, max(8,000, 0.15 x context tokens x 4)) chars",
+      "told": "model",
+      "told_detail": "The stub says the result was too large and where the full output is saved.",
+      "config_key": null,
+      "fix": "Keep web.extract_char_limit times the URL count below the threshold; on a 64K local model use about 10000 and at most 3 URLs. Ask the agent to open the saved file with execute_code or terminal.",
+      "applies": "",
+      "issues": [
+        "#23767",
+        "#90426",
+        "#138141"
+      ],
+      "code_refs": [
+        "tools/budget_config.py:13-15",
+        "tools/budget_config.py:56-75",
+        "tools/budget_config.py:85-114",
+        "agent/tool_executor.py:119-131"
+      ]
+    },
+    {
+      "id": "turn-and-subagent-caps",
+      "title": "Agent turns and subagents stop at iteration caps",
+      "topic": "tools",
+      "kind": "MISSING",
+      "driver": "commit",
+      "detect": "live",
+      "what": "The main-agent turn cap agent.max_turns is unlimited by default. When it is hit, the model gets a forced no-tools request and must summarise. Subagents have their own cap of 250 iterations, and one-shot runs (-q or -z) are limited to 2 subagents and lose the clarify tool.",
+      "threshold": "delegation.max_iterations 250; delegation.max_summary_chars 24,000; goals.max_turns 20; loops.max_ticks 100",
+      "told": "both",
+      "told_detail": "User sees 'Reached maximum iterations'; the model gets a no-tools summary request; subagent trims log only.",
+      "config_key": "agent.max_turns",
+      "fix": "Raise agent.max_turns for the main agent or delegation.max_iterations for subagents. agent.budget_warning_ratio gives an earlier warning.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "hermes_cli/config_defaults.py:63-70",
+        "hermes_cli/config.py:1721-1746",
+        "agent/context_compressor.py:344-347",
+        "agent/chat_completion_helpers.py:2281"
+      ]
+    },
+    {
+      "id": "native-web-search-swap",
+      "title": "Provider-side web search replaces Hermes's own web tools",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "wire",
+      "detect": "live",
+      "what": "On the ChatGPT Codex backend with web.search_backend openai-native, and in xAI native mode, the client web_search tool is replaced by the provider's server-side search. Searches and page reads then happen inside the provider, so Hermes's caps and hooks never see them.",
+      "threshold": "Depends on the selected search backend",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": "web.search_backend",
+      "fix": "Pick a client search backend such as firecrawl, tavily or exa so searches run through Hermes tools.",
+      "applies": "",
+      "issues": [
+        "#48108",
+        "#83122",
+        "#95003"
+      ],
+      "code_refs": [
+        "agent/transports/codex.py:85-110",
+        "agent/transports/codex.py:202-262"
+      ]
+    },
+    {
+      "id": "web-extract-stored-copy-2m-cap",
+      "title": "The saved 'full text' of a web page is cut at 2,000,000 chars",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "The saved file that the truncation footer calls the complete page is itself cut at 2,000,000 chars. The cut marker sits only at the very end of the file.",
+      "threshold": "2,000,000 chars",
+      "told": "model",
+      "told_detail": "The footer claims the file is complete; only the end of the file carries a cut marker.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. For a page that long, download it with terminal (curl) and read the file in parts.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/web_tools_truncate.py:20-22",
+        "tools/web_tools_truncate.py:70-74",
+        "tools/web_tools_truncate.py:117-119"
+      ]
+    },
+    {
+      "id": "web.cache_served_silently",
+      "title": "Cached web results are served without a freshness label",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "web_extract results come from a disk cache shared across the CLI, gateway, cron and subagents. web_search results come from an in-process memo keyed on the query. Neither is flagged as cached.",
+      "threshold": "TTL 20 min (1 to 1440); extract index keeps the newest 500 entries",
+      "told": "nobody",
+      "told_detail": "INFO log lines 'cache hit' only.",
+      "config_key": "web.cache_ttl_minutes",
+      "fix": "Lower web.cache_ttl_minutes, or add hosts that change often to web.cache_exempt_hosts.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/web_result_cache.py:24-53",
+        "tools/web_result_cache.py:94-104",
+        "tools/web_result_cache.py:261-283",
+        "tools/web_tools_truncate.py:189-198"
+      ]
+    },
+    {
+      "id": "web.keyless_ring_rotation",
+      "title": "Without web keys each request goes to a different free service",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "reference",
+      "detect": "reference",
+      "what": "With no web credentials and no importable ddgs, web_search and web_extract rotate round-robin across the Exa, Parallel, Firecrawl and Keenable free tiers. The vendors behave differently, for example Exa cuts pages at about 3,000 chars, so the same URL can return different text.",
+      "threshold": "No credentials and web.keyless_fallback true (default)",
+      "told": "nobody",
+      "told_detail": "Search adds served_by only on failover; extract tells nobody.",
+      "config_key": "web.provider_tier",
+      "fix": "Pin one vendor with web.provider_tier (for example parallel: free), or configure a keyed backend.",
+      "applies": "",
+      "issues": [
+        "#91609",
+        "#113892",
+        "#113893",
+        "#146558",
+        "#146853"
+      ],
+      "code_refs": [
+        "tools/web_tools.py:100-155",
+        "agent/web_search_registry.py:63-69",
+        "agent/web_search_registry.py:128-154",
+        "plugins/web/keyless_mcp.py:32"
+      ]
+    },
+    {
+      "id": "web_extract.batch_timeout",
+      "title": "web_extract timeout covers the whole batch, not each URL",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "web.extract_timeout bounds the whole extract call, not each URL. A 5-URL call that runs past 120 s discards pages that already finished, and every URL reports a timeout. For eligible providers the whole batch is then re-fetched from the free keyless ring.",
+      "threshold": "120 s per batch; Firecrawl 60 s per URL",
+      "told": "model",
+      "told_detail": "Per-URL timeout errors if not rescued; if rescued, nobody is told.",
+      "config_key": null,
+      "fix": "Raise the web.extract_timeout setting (default 120 s; 0 disables it), or call web_extract with fewer URLs at a time.",
+      "applies": "",
+      "issues": [
+        "#43272"
+      ],
+      "code_refs": [
+        "tools/web_tools_extract.py:22-23",
+        "tools/web_tools_extract.py:138-148",
+        "tools/web_tools_extract.py:157-190",
+        "plugins/web/firecrawl/provider.py:281"
+      ]
+    },
+    {
+      "id": "web_extract.ddgs_autodetect_dead",
+      "title": "With ddgs installed and no keys, web_extract always fails",
+      "topic": "web",
+      "kind": "MISSING",
+      "driver": "tool",
+      "detect": "live",
+      "what": "On an install where ddgs is importable and no web keys or backend selection exist, autodetect picks ddgs for extraction too. ddgs is search-only, so every web_extract fails, and the keyless ring that could serve it is never consulted.",
+      "threshold": "ddgs importable and a never-configured web section",
+      "told": "model",
+      "told_detail": "The error says ddgs is search-only and to set web.extract_backend; it does not say why ddgs was chosen.",
+      "config_key": "web.extract_backend",
+      "fix": "`hermes config set web.extract_backend parallel` selects a backend that extracts without a key.",
+      "applies": "",
+      "issues": [
+        "#89912",
+        "#119529"
+      ],
+      "code_refs": [
+        "tools/web_tools.py:100-138",
+        "tools/web_tools.py:187-191",
+        "tools/web_tools_extract.py:114-135"
+      ]
+    },
+    {
+      "id": "web_extract.head_tail_truncation",
+      "title": "web_extract keeps only the head and tail of long pages",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool+commit",
+      "detect": "live",
+      "what": "Pages whose clean text exceeds the char budget are cut to about 75% head and 25% tail, and the middle is dropped. For articles the tail is mostly footer or navigation, so the useful text is roughly the first 11,250 chars. The full text is saved to a file under ~/.hermes/cache/web/.",
+      "threshold": "15,000 chars per page by default; clamped to 2,000 to 500,000",
+      "told": "model",
+      "told_detail": "A footer at the end gives chars shown, the saved file path and a read_file hint.",
+      "config_key": "web.extract_char_limit",
+      "fix": "`hermes config set web.extract_char_limit 30000` raises the per-page budget. Keep the budget times the URL count below the tool-result spill threshold.",
+      "applies": "next call",
+      "issues": [
+        "#150587"
+      ],
+      "code_refs": [
+        "tools/web_tools_truncate.py:19",
+        "tools/web_tools_truncate.py:24-44",
+        "tools/web_tools_truncate.py:86-128",
+        "tools/web_tools_truncate.py:153-186"
+      ]
+    },
+    {
+      "id": "web_extract.pdf_from_url",
+      "title": "PDF links lose their middle: methods and results are cut",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "PDF URLs go through the normal web_extract path, so text over 15,000 chars is cut to head and tail. A paper keeps its intro and references and loses methods and results. The stored copy can be a single line, and no scanned-page check runs, so empty or scanned pages go unnoticed.",
+      "threshold": "PDF text over 15,000 chars; stored line over 2,000 chars",
+      "told": "model",
+      "told_detail": "The footer's read offset can point past the end of the stored file; nobody is told about scanned or empty pages.",
+      "config_key": "web.extract_char_limit",
+      "fix": "Download the PDF with terminal (curl -L -o /tmp/x.pdf URL), then ask the agent to read_file the local file, which paginates and reports scanned pages.",
+      "applies": "",
+      "issues": [
+        "#138141"
+      ],
+      "code_refs": [
+        "tools/web_tools_truncate.py:92-99",
+        "tools/web_tools_truncate.py:112-120",
+        "tools/web_tools_truncate.py:136-150",
+        "tools/file_operations.py:51"
+      ]
+    },
+    {
+      "id": "web_extract.perplexity_snippets",
+      "title": "The perplexity extract backend returns passages, not whole pages",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "tool",
+      "detect": "live",
+      "what": "With perplexity as the extract backend, web_extract returns query-relevant passages, with cuts marked by an ellipsis, instead of the page. The query is built from the URL path words, and each page is capped at 4,096 tokens. The tool description still promises clean page content.",
+      "threshold": "4,096 tokens per page; 16,384 tokens in total",
+      "told": "nobody",
+      "told_detail": "Only the ellipsis marks inside the text.",
+      "config_key": "web.extract_backend",
+      "fix": "`hermes config set web.extract_backend parallel` returns page text instead of passages. Firecrawl, tavily or exa also work.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "plugins/web/perplexity/provider.py:30-34",
+        "plugins/web/perplexity/provider.py:66-69",
+        "plugins/web/perplexity/provider.py:164-174",
+        "plugins/web/perplexity/provider.py:242-264"
+      ]
+    },
+    {
+      "id": "web_extract.silent_keyless_rescue",
+      "title": "A failed web_extract is re-served silently by a free keyless backend",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "When every URL in a call fails, the provider raises, or the 120 s dispatch cap fires, Hermes re-serves the call from the free keyless ring. The result looks like a normal success. For a Tavily setup the ring starts at Exa, which cuts pages at about 3,000 chars.",
+      "threshold": "Whole-batch failure, an exception, or the 120 s timeout",
+      "told": "nobody",
+      "told_detail": "Only a WARNING in the tools.web_tools log.",
+      "config_key": "web.keyless_rescue",
+      "fix": "`hermes config set web.keyless_rescue false` makes a failed call return the configured backend's own error instead of a keyless result.",
+      "applies": "",
+      "issues": [
+        "#133473",
+        "#146558",
+        "#146853"
+      ],
+      "code_refs": [
+        "tools/web_tools_extract.py:151-190",
+        "tools/web_tools_extract.py:230-238",
+        "tools/web_tools_rescue.py:20-30",
+        "tools/web_tools_rescue.py:75-90"
+      ]
+    },
+    {
+      "id": "web_extract.thin_content_success",
+      "title": "JS-only or bot-walled pages come back as short 'successful' text",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "heuristic",
+      "what": "Pages that need JavaScript, or sit behind a bot wall, cookie wall or login, return a short body that Hermes passes on as a success. There is no minimum-length check and no wall detection, so the model has to notice a thin result itself.",
+      "threshold": "",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": "web.extract_backend",
+      "fix": "Ask the agent to open the page with browser_exec, or set web.extract_backend to a backend that renders pages server-side, such as firecrawl.",
+      "applies": "",
+      "issues": [
+        "#75990",
+        "#99533",
+        "#147472"
+      ],
+      "code_refs": [
+        "tools/web_tools_truncate.py:153-186",
+        "tools/web_tools.py:539",
+        "plugins/web/tavily/provider.py:109-118",
+        "plugins/web/_common.py:72-97"
+      ]
+    },
+    {
+      "id": "web_extract.url_cap_5",
+      "title": "web_extract fetches only the first 5 URLs",
+      "topic": "web",
+      "kind": "MISSING",
+      "driver": "tool",
+      "detect": "live",
+      "what": "The tool handler slices the URL list to the first 5. URLs 6 and beyond are never fetched and produce no error entry. The UI row still shows a count for every URL the model asked for.",
+      "threshold": "5 URLs per call",
+      "told": "nobody",
+      "told_detail": "Only the schema's maxItems 5, which non-strict function calling does not enforce.",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Call web_extract again with the remaining URLs.",
+      "applies": "",
+      "issues": [],
+      "code_refs": [
+        "tools/web_tools.py:543-548",
+        "tools/web_tools.py:566-570",
+        "agent/display.py:1150-1156"
+      ]
+    },
+    {
+      "id": "web_search.caps_and_snippets",
+      "title": "web_search returns at most 20 results, though the schema allows 100",
+      "topic": "web",
+      "kind": "SAW",
+      "driver": "tool",
+      "detect": "live",
+      "what": "The tool schema advertises a limit up to 100 (default 5), but every bundled vendor caps results at 20. Snippet depth also differs by backend and is not shown, so the model answers from snippets of unknown length.",
+      "threshold": "20 results from the vendor; 5 by default",
+      "told": "nobody",
+      "told_detail": "",
+      "config_key": null,
+      "fix": "Hardcoded in v0.23.0. Ask for several narrower queries, or have the agent web_extract the top hits.",
+      "applies": "",
+      "issues": [
+        "#75990",
+        "#150587"
+      ],
+      "code_refs": [
+        "plugins/web/_common.py:19",
+        "plugins/web/tavily/provider.py:25",
+        "plugins/web/tavily/provider.py:98-107",
+        "plugins/web/exa/provider.py:46-57"
+      ]
+    },
+    {
+      "id": "web_search.rescue_nested_error",
+      "title": "A failed web_search is re-served by a free keyless backend",
+      "topic": "web",
+      "kind": "SWAPPED",
+      "driver": "tool",
+      "detect": "live",
+      "what": "When the configured search backend fails, the call is re-served from the keyless ring, which starts at Exa for a backend like Tavily. The response stays 'success' and the failure is nested in the data. A throttled keyless Exa can return text that becomes an empty result list, so the model may conclude there are no results.",
+      "threshold": "Any failure of the configured backend",
+      "told": "model",
+      "told_detail": "data.backend_error names the failed backend; the user is not told (log warning only).",
+      "config_key": "web.keyless_rescue",
+      "fix": "`hermes config set web.keyless_rescue false` makes a failed search return the configured backend's own error instead of a keyless result.",
+      "applies": "",
+      "issues": [
+        "#111530",
+        "#133473",
+        "#146853"
+      ],
+      "code_refs": [
+        "tools/web_tools.py:350-389",
+        "tools/web_tools_rescue.py:50-72",
+        "tools/web_tools_rescue.py:93-118",
+        "plugins/web/keyless_mcp.py:252-277"
+      ]
+    }
+  ]
+}

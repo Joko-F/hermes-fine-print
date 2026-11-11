@@ -1,0 +1,56 @@
+{
+  "name": "office_docx_tables_footnotes",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/hermes-fine-print/fine-print/tests/fixtures/files/report_tables_footnotes.docx"
+  },
+  "result": "{\"content\": \"1|Quarterly Summary\\n2|Intro paragraph with a footnote.\\n3|Region\\n4|Q1\\n5|Q2\\n6|North\\n7|120\\n8|135\\n9|South\\n10|98\\n11|101\\n12|East\\n13|77\\n14|80\\n15|Middle paragraph with another footnote.\\n16|Code\\n17|Meaning\\n18|A1\\n19|Alpha clause\\n20|B2\\n21|Beta clause\\n22|Closing paragraph.\", \"total_lines\": 22, \"file_size\": 2532, \"truncated\": false, \"extracted_document\": true}",
+  "facts": {
+    "result_top_keys": [
+      "content",
+      "total_lines",
+      "file_size",
+      "truncated",
+      "extracted_document"
+    ],
+    "total_lines": 22,
+    "truncated": false,
+    "hint": null,
+    "extracted_document": true,
+    "file_size": 2532,
+    "content_chars": 261,
+    "tables_in_file": [
+      {
+        "rows": 4,
+        "cols": 3
+      },
+      {
+        "rows": 3,
+        "cols": 2
+      }
+    ],
+    "footnotes_in_file": [
+      "FOOTNOTE-ONE: source is the example.com annual ledger.",
+      "FOOTNOTE-TWO: figures are rounded to the nearest unit."
+    ],
+    "footnote_refs_in_body": 2,
+    "header_in_file": "HEADER-TEXT: Internal draft",
+    "footer_in_file": "FOOTER-TEXT: Page footer",
+    "tables_text_present_in_result": true,
+    "table_structure_preserved": false,
+    "footnote_text_present_in_result": false,
+    "header_footer_present_in_result": false,
+    "file_path": "/home/dev/hermes-fine-print/fine-print/tests/fixtures/files/report_tables_footnotes.docx",
+    "parts_in_zip": [
+      "word/document.xml",
+      "word/footnotes.xml",
+      "word/header1.xml",
+      "word/footer1.xml"
+    ],
+    "note": "extractor reads only word/document.xml paragraphs; table cells become one line each (no row/column structure); footnotes/headers/footers are dropped"
+  },
+  "expect": "hit",
+  "limit_id": "office-extraction-silent-loss",
+  "source": "tools/read_extract.py:30-38 (_MAX_XLSX_ROWS_PER_SHEET=5000), :474-487 (_extract_docx), :497-541 (_extract_xlsx/_sheet_rows), :621-623; tools/file_tools.py:425-494 (_read_extracted_document)",
+  "synthetic_by_hand": false
+}

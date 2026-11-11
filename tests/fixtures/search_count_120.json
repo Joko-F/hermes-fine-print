@@ -1,0 +1,37 @@
+{
+  "name": "search_count_120",
+  "tool": "search_files",
+  "args": {
+    "pattern": "FPNEEDLE",
+    "path": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120",
+    "output_mode": "count"
+  },
+  "result": "{\"total_count\": 50, \"counts\": {\"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_062.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_056.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_048.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_068.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_095.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_030.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_002.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_017.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_000.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_038.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_041.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_066.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_113.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_116.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_101.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_014.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_036.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_080.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_083.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_044.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_104.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_060.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_098.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_065.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_020.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_114.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_053.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_024.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_074.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_005.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_050.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_012.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_086.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_023.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_110.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_078.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_008.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_026.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_084.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_032.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_054.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_072.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_077.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_018.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_102.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_042.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_085.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d5/file_107.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_006.txt\": 1, \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_055.txt\": 1}}",
+  "facts": {
+    "real_total": 120,
+    "real_total_unit": "matching files (each count == 1)",
+    "limit": 50,
+    "offset": 0,
+    "rows_returned": 50,
+    "page_full": true,
+    "total_count_in_result": 50,
+    "truncated_key_present": false,
+    "top_level_keys": [
+      "total_count",
+      "counts"
+    ],
+    "tree": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120",
+    "files_in_tree": 120,
+    "output_mode": "count",
+    "target": "content",
+    "page_is_silent_cap": true,
+    "more_results_exist": true,
+    "shape": "counts: {path: n}",
+    "compaction_summary_line": "[search_files] content search for 'FPNEEDLE' in /home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120 -> 50 matches",
+    "compaction_summary_produced_by": "agent/context_compressor.py:1682 (_sum_search_files) - context compaction, NOT the tool"
+  },
+  "expect": "hit",
+  "limit_id": "search-files-silent-page-cap",
+  "source": "tools/file_operations_search.py:92-496 (_parse_search_output), :1323 (_run_search_pipeline fetch_limit), tools/file_tools.py:1053-1135 (search_tool), tools/file_operations_common.py:145-171 (SearchResult.to_dict)",
+  "synthetic_by_hand": false
+}

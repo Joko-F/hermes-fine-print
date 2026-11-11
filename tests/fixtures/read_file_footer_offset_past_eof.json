@@ -1,0 +1,36 @@
+{
+  "name": "read_file_footer_offset_past_eof",
+  "tool": "read_file",
+  "args": {
+    "path": "/home/dev/hermes-fine-print/devtools/home/cache/web/example.com-6b86b07739.md",
+    "offset": 2,
+    "limit": 200
+  },
+  "result": "{\"content\": \"\", \"total_lines\": 1, \"file_size\": 60000, \"truncated\": false, \"hint\": \"Note: offset 2 is beyond the end of the file (1 lines total). Retry with offset <= 1.\", \"is_binary\": false, \"is_image\": false, \"not_found\": false}",
+  "facts": {
+    "result_top_keys": [
+      "content",
+      "total_lines",
+      "file_size",
+      "truncated",
+      "hint",
+      "is_binary",
+      "is_image",
+      "not_found"
+    ],
+    "followed_footer_of": "web_extract_pdf_oneline",
+    "saved_file": {
+      "chars": 60000,
+      "line_count": 1,
+      "line_count_wc_l": 0,
+      "max_line_len": 60000,
+      "ends_with_newline": false
+    },
+    "footer_offset": 2,
+    "note": "executing the footer's own read_file call on a one-line page; see result for what the model gets back"
+  },
+  "expect": "hit",
+  "limit_id": "web_extract.pdf_from_url",
+  "source": "tools/file_operations.py:489-501 (_add_line_numbers clamp), :815/:1172 (truncated_lines); tools/tool_output_limits.py:15; tools/web_tools_truncate.py:114",
+  "synthetic_by_hand": false
+}

@@ -1,0 +1,34 @@
+{
+  "name": "search_target_files_120",
+  "tool": "search_files",
+  "args": {
+    "pattern": "file_*.txt",
+    "target": "files",
+    "path": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120"
+  },
+  "result": "{\"total_count\": 51, \"files\": [\"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_050.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_008.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_044.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_098.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_074.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_086.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_110.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_026.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_014.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_062.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_080.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_104.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_020.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_092.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_032.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_002.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_038.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_116.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_068.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d2/file_056.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_048.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_030.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_000.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_066.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_036.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_060.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_114.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_024.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_012.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_078.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_084.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_018.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_090.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_006.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_072.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_042.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_054.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_102.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_096.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d0/file_108.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_067.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_073.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_043.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_013.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_037.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_085.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_079.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_091.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_115.txt\", \"/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120/d1/file_109.txt\"], \"truncated\": true, \"total_count_is_lower_bound\": true, \"_hint\": \"Results truncated. Use offset=50 to see more, or narrow with a more specific pattern or file_glob.\"}",
+  "facts": {
+    "real_total": 120,
+    "limit": 50,
+    "offset": 0,
+    "rows_returned": 50,
+    "page_full": true,
+    "total_count_in_result": 51,
+    "truncated_key_present": true,
+    "top_level_keys": [
+      "total_count",
+      "files",
+      "truncated",
+      "total_count_is_lower_bound",
+      "_hint"
+    ],
+    "hint": "Results truncated. Use offset=50 to see more, or narrow with a more specific pattern or file_glob.",
+    "tree": "/home/dev/.hermes/cache/scratch/fp-fixtures/search_tree_120",
+    "target": "files",
+    "note": "file-name search fetches limit+offset+1 rows and sets truncated itself (not silent)"
+  },
+  "expect": "miss",
+  "limit_id": "search-files-silent-page-cap",
+  "source": "tools/file_operations_search.py:92-496 (_parse_search_output), :1323 (_run_search_pipeline fetch_limit), tools/file_tools.py:1053-1135 (search_tool), tools/file_operations_common.py:145-171 (SearchResult.to_dict); tools/file_operations_search.py:1175,1283",
+  "synthetic_by_hand": false
+}
