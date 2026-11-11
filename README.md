@@ -284,7 +284,10 @@ What a user should know before installing (catalog rule 13):
   filter before they are written. Rows of a deleted session are purged. Host names and file names are
   metadata, but they are yours: the file stays on your machine.
 - **Posts a notice into the chat** when a turn ends. On messaging platforms a notice is a real message that
-  a whole group sees, so cards default to local surfaces (CLI, TUI, Desktop) only.
+  a whole group sees, so cards default to local surfaces only. Cards were seen in the CLI and the TUI.
+  In Hermes Desktop 0.23.0 the notice was not delivered in the author's check (`ctx.post_message`
+  returned not ok for a Desktop chat): there the note still reaches the model and the hit is listed by
+  `/limits` as "logged only".
 - No network, no telemetry, no subprocesses, no credentials, no middleware, no tools, no monkeypatching.
   It never approves, blocks or reroutes a call and never advises turning a safety feature off.
 
