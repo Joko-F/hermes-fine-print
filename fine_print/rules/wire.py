@@ -97,7 +97,7 @@ def _placeholders(messages: Any) -> int:
     return n
 
 
-@rule("outbound-image-eviction", driver="wire", core_tells="model", status="fixture")
+@rule("outbound-image-eviction", driver="wire", core_tells="model", status="verified")
 def image_gap(ev: WireEvent) -> Iterator[Obs]:
     """The conversation holds M image parts, this request carries K < M. Returns at once when the history
     holds none (text-only sessions pay one pass over the history, cached on the event). When the request

@@ -39,7 +39,7 @@ _VISION_TASK = "vision"      # tools/vision_tools.py:770 is the only place that 
 
 
 # ── aux: a helper model was asked to look at an image or video ─────────────────────────────────────
-@rule("aux-vision-substitution", driver="aux", tools={_VISION_TASK}, core_tells="both", status="fixture")
+@rule("aux-vision-substitution", driver="aux", tools={_VISION_TASK}, core_tells="both", status="verified")
 def vision_helper(ev: AuxEvent) -> Iterator[Obs]:
     """A finished attempt of the vision helper. A failed attempt (``error_type`` set, auxiliary_hooks.py:154-158)
     is its own observation and its own sentence: the hook is per attempt, so it does not say the image
@@ -139,7 +139,7 @@ _CLI_DESCRIBED = re.compile(r"^\[The user attached an image\. Here's what it con
 _CLI_FAILED = re.compile(r"^\[The user attached an image but (?:it couldn't be analyzed\. |analysis failed \()", re.M)
 
 
-@rule("cli-text-mode-image-description", driver="route", core_tells="both", status="fixture")
+@rule("cli-text-mode-image-description", driver="route", core_tells="both", status="verified")
 def cli_description(ev: UserTurnEvent) -> Iterator[Obs]:
     """The CLI's text-mode image routing wrote its note into the user message: the helper vision model
     described the attached image (or could not), and the message carries that text and the file path in

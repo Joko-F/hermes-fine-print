@@ -72,7 +72,7 @@ def line(obs):
 # ── outbound-image-eviction ───────────────────────────────────────────────────────────────────────
 def test_registered_as_a_wire_rule_with_the_catalogue_tell():
     rule = REGISTRY.get("outbound-image-eviction")
-    assert (rule.driver, rule.core_tells, rule.status) == ("wire", "model", "fixture")
+    assert (rule.driver, rule.core_tells, rule.status) == ("wire", "model", "verified")
 
 
 def test_chat_request_with_core_placeholders_names_eviction(fp):

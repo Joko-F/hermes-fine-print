@@ -53,10 +53,11 @@ def turn(fp, message, **over):
 
 
 # ── aux-vision-substitution ──────────────────────────────────────────────────────────────────────
-def test_registered_as_fixture_with_the_catalogue_told():
-    for rid, tells in (("aux-vision-substitution", "both"), ("gateway-text-mode-150-word-image", "model")):
+def test_registered_with_the_catalogue_told():
+    for rid, tells, status in (("aux-vision-substitution", "both", "verified"),
+                               ("gateway-text-mode-150-word-image", "model", "fixture")):
         rule = REGISTRY.get(rid)
-        assert rule.status == "fixture" and rule.core_tells == tells
+        assert rule.status == status and rule.core_tells == tells
     assert REGISTRY.get("aux-vision-substitution").driver == "aux"
     assert REGISTRY.get("aux-vision-substitution").tools == frozenset({"vision"})
 

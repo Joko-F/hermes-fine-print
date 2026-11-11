@@ -60,7 +60,7 @@ def _off(value: Any) -> bool:
 
 
 # ── model.context_length pin ───────────────────────────────────────────────────────────────────────
-@rule("context-length-pin-ignored", driver="session", core_tells="nobody", status="fixture")
+@rule("context-length-pin-ignored", driver="session", core_tells="nobody", status="verified")
 def pin_not_in_effect(ev: SessionEvent) -> Iterator[Obs]:
     """``model.context_length`` is a durable pin: when it is applied, the compressor's window IS the pin
     (agent/model_metadata.py:2221-2223), and that window is what the response hook reports
@@ -69,19 +69,20 @@ def pin_not_in_effect(ev: SessionEvent) -> Iterator[Obs]:
     live paths re-scope it the same way, :1668-1696). So a positive pin that differs from the reported
     window is a pin that is not in force. The payload has no base URL and no normalized model, so it
     cannot say which of the three differs and the text does not. Subagents are left out: their window
-    is not the user's session window."""
+    is not the user's session window. A card: the user set a ceiling, it is not in force, and core tells
+    nobody (once per session; ``/limits mute`` for a setup that runs other models on purpose)."""
     if ev.is_subagent or not isinstance(ev.context_length, int) or ev.context_length <= 0:
         return
     pin = _int(ev.cfg("model.context_length", None))
     if pin is None or pin == ev.context_length:
         return
     yield Obs("context-length-pin-ignored", numbers={"pinned": pin, "window": ev.context_length},
-              subject=clean_token(ev.model), cause=f"{pin}:{ev.context_length}", severity="digest")
+              subject=clean_token(ev.model), cause=f"{pin}:{ev.context_length}", severity="card")
 
 
 @text("context-length-pin-ignored")
 def _pin_not_in_effect(n: dict, s: str, cfg: Cfg):
-    who = f" {s}" if s else ""
+    who = f" ({s})" if s else ""
     return (f"model.context_length pins {n['pinned']:,} tokens in your config; this session{who} runs with a "
             f"{n['window']:,}-token window (Hermes applies the pin only while the running model, base URL "
             "and provider all match the configured default; the hook does not show which one differs).",

@@ -33,10 +33,10 @@ def line(obs, host):
     return cards.describe(obs.rule_id, obs.numbers, obs.subject, host.config)[0]
 
 
-def test_all_rules_registered_as_session_fixtures():
+def test_all_rules_registered_on_the_session_driver():
     for rid in SESSION_RULES:
         rule = next(r for r in REGISTRY.matching("session", "") if r.id == rid)
-        assert rule.status == "fixture"
+        assert rule.status == ("verified" if rid == "context-length-pin-ignored" else "fixture")
     told = {r.id: r.core_tells for r in REGISTRY.matching("session", "")}
     assert told["context-length-pin-ignored"] == "nobody"
     assert told["compaction-trigger-floor-and-codex-autoraise"] == "user"
@@ -46,9 +46,9 @@ def test_all_rules_registered_as_session_fixtures():
 def test_pin_differs_from_window_fires(fp, host):
     got = run(fp, host, cfg={"model.context_length": 32_000}, window=200_000)
     obs = got["context-length-pin-ignored"]
-    assert obs.numbers == {"pinned": 32_000, "window": 200_000} and obs.severity == "digest"
+    assert obs.numbers == {"pinned": 32_000, "window": 200_000} and obs.severity == "card"
     assert line(obs, host) == (
-        "model.context_length pins 32,000 tokens in your config; this session claude-sonnet-5-5 runs with a "
+        "model.context_length pins 32,000 tokens in your config; this session (claude-sonnet-5-5) runs with a "
         "200,000-token window (Hermes applies the pin only while the running model, base URL and provider all "
         "match the configured default; the hook does not show which one differs).")
 
