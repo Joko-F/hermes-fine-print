@@ -31,6 +31,22 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
     conversation. Both run live and over stored history (`report.py`), where `ev.replay` is true and
     the content is the committed text; a rule that needs something only the live call has must return
     early when `ev.replay` is true.
+  - The other drivers hand a rule one small event of structure and sizes (classes in `engine.py`);
+    their observations belong to no tool call and join the turn once per `(rule, cause)`:
+
+    | driver | event | hook | what the rule can read |
+    |---|---|---|---|
+    | `wire` | `WireEvent` | `pre_api_request` | the conversation and the request's message list by reference (`history_images`, `request_images` = encoded sizes of the image parts), counters |
+    | `api_error` | `ApiErrorEvent` | `api_request_error` | status code, retry counters, core's classification |
+    | `route` | `UserTurnEvent` | `pre_llm_call` | the user message of the turn (the hook returns nothing, so nothing is injected) |
+    | `aux` | `AuxEvent` | `post_auxiliary_call` | task, helper model, the session's own model, error type; gate by task with `tools={"vision"}` |
+    | `session` | `SessionEvent` | once per session, after its first response | effective model, window and tool count, plus `cfg(key, default)` for what the config asks for |
+    | `response`, `turn`, `compaction` | `ApiEvent`, `TurnEvent`, `CompactionEvent` | `post_api_request`, turn close, `post_compaction` | metadata only |
+
+    These events are not in stored history, so the report never counts them and their rules are
+    verified by a live session, not by replay (see "Promotion to verified"). The request body that
+    core hands to hooks is cut to 50,000 characters, so `SessionEvent.tool_names` is usually empty:
+    empty means unknown.
   - `tools` are exact tool names; `prefixes` (e.g. `("mcp_",)`) match by prefix. Always gate by tool.
   - `core_tells`: who Hermes itself informs when the limit bites: `nobody`, `model`, `user`, `both`.
     A model note is delivered only when this is `nobody`.
@@ -77,3 +93,8 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str]:
 
 `python3 dev/replay.py --samples 10` prints per-rule hits, recovery and would-card counts plus sampled
 hits as metadata. Look at the samples (are they what the rule claims?), then flip `status`.
+
+A rule whose event is not in stored history (every driver in the table above) is promoted after it
+fired in a live session set up to hit the limit, with the session's own numbers checked against what
+the rule printed (for a `wire` rule: the image parts in the history and in the request, counted
+independently).
