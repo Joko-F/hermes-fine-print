@@ -96,8 +96,9 @@ def _long_lines(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
         which = f"{marked:,} of {lines:,} lines returned {'was' if marked == 1 else 'were'}"
     else:
         which = f"{marked:,} line{'' if marked == 1 else 's'} came back"
+    rest = "the rest of that line" if marked == 1 else "the rest of each cut line"
     return (f"read_file · {s}: {which} cut with a '... [truncated]' marker (longest kept prefix "
-            f"{n['prefix_max']:,} chars); the rest of each cut line was not returned.",
+            f"{n['prefix_max']:,} chars); {rest} was not returned.",
             None)
 
 
@@ -138,9 +139,11 @@ def _terminal_window(n: dict, s: str, cfg: Cfg) -> tuple[str, str | None]:
         return (f"terminal: the foreground command hit its {n['timeout']:,} s timeout.",
                 "pass a larger timeout= to terminal (Hermes names 600 s as the foreground maximum) "
                 "or run the job with background=true.")
+    # tools/tool_output_limits.py:13, :32-52: default 50,000, cached for the life of the process.
     return (f"terminal: the capture kept {n['shown']:,} of {n['total']:,} chars (head and tail); "
             "the middle was left out of the result and saved to a log file.",
-            None)
+            "ask the agent to search the saved log with search_files (its path is in the result), or raise "
+            "tool_output.max_bytes (default 50000). Applies: gateway restart.")
 
 
 @rule("spill-format-dead-end-v0.23", driver="tool", tools={"read_file"},

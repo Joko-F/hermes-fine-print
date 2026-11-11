@@ -153,3 +153,14 @@ def test_terminal_window_is_a_card_only_when_under_half_of_the_output_was_kept()
     obj["output_total_chars"] = kept
     found = REGISTRY.run("tool", "terminal", ToolEvent("terminal", data["args"], json.dumps(obj)))
     assert [o.severity for o in found] == ["digest"]
+
+
+def test_a_catalogue_fix_carries_its_timing_and_the_terminal_window_has_its_own_fix():
+    cfg = lambda key, default: default
+    _line, fix = describe("long-line-clamps", {"marked": 1, "prefix_max": 2000, "lines": 1}, "a.json", cfg)
+    assert "tool_output.max_line_length" in fix and fix.endswith("Applies: gateway restart.")
+    line, fix = describe("terminal-capture-window-and-timeout", {"shown": 49_925, "total": 349_055}, "terminal", cfg)
+    assert "kept 49,925 of 349,055 chars" in line
+    assert "tool_output.max_bytes" in fix and "timeout" not in fix and fix.endswith("Applies: gateway restart.")
+    line, _fix = describe("long-line-clamps", {"marked": 1, "prefix_max": 2000, "lines": 1}, "a.json", cfg)
+    assert line.endswith("the rest of that line was not returned.")

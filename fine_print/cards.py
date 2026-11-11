@@ -174,7 +174,10 @@ def describe(rule_id: str, numbers: dict, subject: str, cfg: Cfg) -> tuple[str, 
     if fix is None:
         from . import catalog
         entry = catalog.get(rule_id)
-        fix = entry["fix"] if entry and entry.get("fix") else "see /limits explain " + rule_id
+        if entry and entry.get("fix"):          # the same text /limits explain shows, with its timing
+            fix = entry["fix"] + (f" Applies: {entry['applies']}." if entry.get("applies") else "")
+        else:
+            fix = "see /limits explain " + rule_id
     return line, fix
 
 
