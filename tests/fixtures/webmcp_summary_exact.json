@@ -1,0 +1,21 @@
+{
+  "name": "webmcp_summary_exact",
+  "tool": "delegate_task",
+  "args": {
+    "tasks": [
+      {
+        "goal": "Synthetic task"
+      }
+    ]
+  },
+  "result": "{\"results\": [{\"task_index\": 0, \"status\": \"completed\", \"summary\": \"Synthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSynthetic summary line.\\nSyntheti\"}]}",
+  "facts": {
+    "input_chars": 2000,
+    "dynamic_cap": 2000,
+    "stored": true
+  },
+  "expect": "miss",
+  "limit_id": "subagent-summary-budget",
+  "source": "tools/delegate_tool_results.py:194-238,254-308",
+  "synthetic_by_hand": false
+}

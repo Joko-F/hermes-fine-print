@@ -1,0 +1,17 @@
+{
+  "name": "webmcp_video_helper_failure",
+  "tool": "video_analyze",
+  "args": {
+    "video_url": "/home/dev/.hermes/cache/scratch/fp-webmcp/synthetic.mp4"
+  },
+  "result": "{\n  \"success\": false,\n  \"error\": \"Error analyzing video: Synthetic helper rejection\",\n  \"analysis\": \"There was a problem with the request and the video could not be analyzed. Error: Synthetic helper rejection\"\n}",
+  "facts": {
+    "aux_task": "vision",
+    "request_part_type": "video_url",
+    "mocked_auxiliary_response": true
+  },
+  "expect": "miss",
+  "limit_id": "video-aux-only",
+  "source": "tools/vision_tools.py:833-877,1122-1146",
+  "synthetic_by_hand": false
+}

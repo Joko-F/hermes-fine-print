@@ -1,0 +1,17 @@
+{
+  "name": "webmcp_video_helper_text",
+  "tool": "video_analyze",
+  "args": {
+    "video_url": "/home/dev/.hermes/cache/scratch/fp-webmcp/synthetic.mp4"
+  },
+  "result": "{\n  \"success\": true,\n  \"analysis\": \"Synthetic video description.\"\n}",
+  "facts": {
+    "aux_task": "vision",
+    "request_part_type": "video_url",
+    "mocked_auxiliary_response": true
+  },
+  "expect": "hit",
+  "limit_id": "video-aux-only",
+  "source": "tools/vision_tools.py:833-877,1122-1146",
+  "synthetic_by_hand": false
+}

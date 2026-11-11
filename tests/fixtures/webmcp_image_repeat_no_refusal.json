@@ -1,0 +1,36 @@
+{
+  "name": "webmcp_image_repeat_no_refusal",
+  "tool": "vision_analyze",
+  "args": {
+    "image_url": "/home/dev/synthetic-image.png"
+  },
+  "result": {
+    "_multimodal": true,
+    "content": [
+      {
+        "type": "text",
+        "text": "Image loaded into your context — you can see it natively now. Use your built-in vision to answer the user.\n\nQuestion: Synthetic question"
+      },
+      {
+        "type": "image_url",
+        "image_url": {
+          "url": "data:image/png;base64,c3ludGhldGlj"
+        }
+      }
+    ],
+    "text_summary": "Image attached natively for the main model (0.0 KB). Answer using built-in vision.",
+    "meta": {
+      "image_url": "/home/dev/synthetic-image.png",
+      "size_bytes": 9,
+      "native_vision": true
+    }
+  },
+  "facts": {
+    "cap": 0,
+    "native_builder_called": true
+  },
+  "expect": "miss",
+  "limit_id": "subagent-image-repeat-cap",
+  "source": "tools/vision_tools_history_budget.py:97-99; tools/vision_tools.py:594-616",
+  "synthetic_by_hand": false
+}
